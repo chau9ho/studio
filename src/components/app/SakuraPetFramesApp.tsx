@@ -487,9 +487,15 @@ export default function SakuraPetFramesApp() {
         } catch (error: any) {
              console.error("Error processing image with ClipDrop:", error);
              // Provide specific user-friendly message for ClipDrop errors
-             // Set specific UI error for ClipDrop failures
-             setUiError("唔好意思, 背景替換出錯，請稍後再試。"); // Adjusted message
-             throw new Error(`ClipDrop processing failed: ${error.message || error}`); // Throw to stop process
+             let detailedError = `ClipDrop processing failed: ${error.message || error}`;
+             // Check for specific network/CORS error message from the service
+             if (error.message && (error.message.includes("Could not connect") || error.message.includes("CORS"))) {
+                 detailedError = "唔好意思, 連接唔到背景替換服務。請檢查網絡或稍後再試。";
+             } else {
+                 detailedError = "唔好意思, 背景替換出錯，請稍後再試。"; // General ClipDrop error
+             }
+             setUiError(detailedError); // Set specific UI error
+             throw new Error(detailedError); // Throw to stop process, use the user-friendly message
         }
         const processedImageBlob = clipdropResponse.image;
         const processedImageDataUrl = await blobToDataUrl(processedImageBlob);
@@ -511,22 +517,24 @@ export default function SakuraPetFramesApp() {
         const displayError = uiError || error.message || "An unknown error occurred.";
         // Set a general error message if no specific one was set (e.g., by ClipDrop handler)
         if (!uiError) {
-             // Check for ClipDrop specific error patterns
-             if (error.message && (error.message.includes("ClipDrop") || error.message.includes("API Error (400)"))) {
-                 setUiError("唔好意思, 背景替換出錯，請稍後再試。");
-             } else if (error.message && error.message.includes("Failed to generate") || error.message.includes("analyze animal") || error.message.includes("generate Cantonese story")) {
-                 setUiError(`唔好意思, AI 出錯: ${displayError}. 請檢查設定或稍後再試。`);
-             }
-             else {
+             // Check for specific error patterns caught earlier or general patterns
+             if (error.message && (error.message.includes("ClipDrop") || error.message.includes("API Error") || error.message.includes("背景替換"))) {
+                 // Use the specific message set in the ClipDrop catch block if available
+                 setUiError(error.message.startsWith("唔好意思") ? error.message : "唔好意思, 背景替換出錯，請稍後再試。");
+             } else if (error.message && (error.message.includes("generate") || error.message.includes("analyze") || error.message.includes("story") || error.message.includes("AI") || error.message.includes("AI model"))) {
+                 // More specific AI error message
+                 setUiError(`唔好意思, AI 諗嘢出錯: ${displayError}. 請檢查設定或稍後再試。`);
+             } else {
+                // General fallback error
                 setUiError(`唔好意思, 出咗啲問題: ${displayError}. 請一陣再試啦。`);
              }
         }
 
          // Update progress text based on error type
-         if (error.message && (error.message.includes("ClipDrop") || error.message.includes("API Error (400)"))) {
+         if (error.message && (error.message.includes("ClipDrop") || error.message.includes("API Error") || error.message.includes("背景替換"))) {
              setProgressText('背景替換失敗...😢');
              // uiError is already set
-         } else if (error.message && (error.message.includes("AI") || error.message.includes("generate prompt") || error.message.includes("analyze animal") || error.message.includes("generate Cantonese story"))) {
+         } else if (error.message && (error.message.includes("AI") || error.message.includes("generate") || error.message.includes("analyze") || error.message.includes("story"))) {
              setProgressText('AI 諗嘢失敗...🤯');
              // uiError is already set
          }
@@ -609,48 +617,15 @@ export default function SakuraPetFramesApp() {
              sourceX = 0;
              sourceY = 0;
 
-            // Determine scaling strategy: Cover the target area
+            // Determine scaling strategy: Fit the image within the target area
              if (imgRatio > targetRatio) {
-                 // Image is wider than target area: scale based on height, crop width
-                 drawHeight = targetHeight;
-                 drawWidth = drawHeight * imgRatio;
-                 // Center the drawn image horizontally within the target box
-                 // drawX = targetX + (targetWidth - drawWidth) / 2; // This centers the scaled image
-                 // drawY = targetY;
-
-                 // // To crop the source image instead:
-                 // sourceHeight = processedImg.naturalHeight;
-                 // sourceWidth = sourceHeight * targetRatio;
-                 // sourceX = (processedImg.naturalWidth - sourceWidth) / 2;
-                 // sourceY = 0;
-                 // drawWidth = targetWidth;
-                 // drawHeight = targetHeight;
-
-                  // Fit strategy: Scale based on width, letterbox height
+                 // Image is wider than target area: scale based on width, letterbox height
                  drawWidth = targetWidth;
                  drawHeight = drawWidth / imgRatio;
-
-
              } else {
-                 // Image is taller than target area (or same ratio): scale based on width, crop height
-                 drawWidth = targetWidth;
-                 drawHeight = drawWidth / imgRatio;
-                 // Center the drawn image vertically within the target box
-                 // drawX = targetX;
-                 // drawY = targetY + (targetHeight - drawHeight) / 2; // This centers the scaled image
-
-                 // // To crop the source image instead:
-                 // sourceWidth = processedImg.naturalWidth;
-                 // sourceHeight = sourceWidth / targetRatio;
-                 // sourceY = (processedImg.naturalHeight - sourceHeight) / 2;
-                 // sourceX = 0;
-                 // drawWidth = targetWidth;
-                 // drawHeight = targetHeight;
-
-                 // Fit strategy: Scale based on height, letterbox width
+                 // Image is taller than target area (or same ratio): scale based on height, letterbox width
                  drawHeight = targetHeight;
                  drawWidth = drawHeight * imgRatio;
-
              }
 
              // Calculate position to center the 'fitted' image within the target area
@@ -658,16 +633,16 @@ export default function SakuraPetFramesApp() {
              const drawY = targetY + (targetHeight - drawHeight) / 2;
 
              console.log(`Target area: ${targetWidth}x${targetHeight} at X=${targetX}, Y=${targetY}`);
-             console.log(`Source crop area: ${sourceWidth}x${sourceHeight} at X=${sourceX}, Y=${sourceY}`);
+             // console.log(`Source crop area: ${sourceWidth}x${sourceHeight} at X=${sourceX}, Y=${sourceY}`); // Source isn't cropped in 'fit'
              console.log(`Calculated draw dimensions (fit): ${drawWidth}x${drawHeight}`);
              console.log(`Calculated draw position (centered fit): X=${drawX}, Y=${drawY}`);
 
 
             try {
-                // Draw the potentially cropped and scaled image into the target area
+                // Draw the scaled/fitted image into the target area
                 ctx.drawImage(
                      processedImg,
-                     // sourceX, sourceY, sourceWidth, sourceHeight, // Cropping source
+                     // sourceX, sourceY, sourceWidth, sourceHeight, // No source cropping needed for fit
                      drawX, drawY, drawWidth, drawHeight // Drawing scaled/fitted
                 );
                 console.log("Processed image drawn onto canvas over the frame.");

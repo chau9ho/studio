@@ -46,8 +46,10 @@ export async function replaceBackground(
   formData.append('image_file', imageFile, fileName);
   formData.append('prompt', prompt);
 
+  let response: Response | null = null; // Declare response outside try block
+
   try {
-    const response = await fetch('https://clipdrop-api.co/replace-background/v1', {
+    response = await fetch('https://clipdrop-api.co/replace-background/v1', {
       method: 'POST',
       headers: {
         'x-api-key': apiKey,
@@ -81,7 +83,7 @@ export async function replaceBackground(
            }
       }
       console.error("ClipDrop API Error Response:", errorBody);
-      throw new Error(errorBody);
+      throw new Error(errorBody); // Throw the detailed error
     }
 
     // Expecting the image data directly as the response body
@@ -99,10 +101,26 @@ export async function replaceBackground(
     };
 
   } catch (error: any) {
-     // Catch network errors or errors thrown above
+    // Catch network errors (like "Failed to fetch") or errors thrown above
     console.error("Error calling ClipDrop API:", error);
-    // Re-throw a consistent error format
-    throw new Error(`ClipDrop API request failed: ${error.message || error}`);
+
+    let errorMessage = "ClipDrop API request failed";
+    if (error.message.includes("Failed to fetch")) {
+        // Provide a more specific message for network/CORS issues
+        errorMessage += ": Could not connect to the API. Check your network connection or if there are Cross-Origin (CORS) restrictions.";
+         // Log potential CORS issue hint
+         console.warn("Hint: 'Failed to fetch' can sometimes indicate a CORS issue when calling APIs directly from the browser. Consider using a backend proxy.");
+    } else if (error.message.includes("API Error")) {
+         // Use the detailed error message thrown from the response check
+         errorMessage = error.message;
+    }
+     else {
+        // General error message
+        errorMessage += `: ${error.message || 'Unknown error'}`;
+    }
+
+    // Re-throw the constructed error message
+    throw new Error(errorMessage);
   }
 }
 
