@@ -5,6 +5,15 @@
  */
 import { Storage } from '@google-cloud/storage';
 
+// Load credentials if the environment variable is set
+let storageConfig = {};
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    console.log(`Loading GCS credentials from: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`);
+    storageConfig = { keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS };
+} else {
+    console.warn("GOOGLE_APPLICATION_CREDENTIALS environment variable is not set. GCS client will attempt to use Application Default Credentials (ADC).");
+}
+
 const BUCKET_NAME = 'motherday'; // The GCS bucket name
 
 // Initialize GCS client.
@@ -12,7 +21,7 @@ const BUCKET_NAME = 'motherday'; // The GCS bucket name
 // On GCP (Cloud Run, App Engine, etc.), ADC should work automatically if the service account has permissions.
 let storage: Storage;
 try {
-    storage = new Storage();
+    storage = new Storage(storageConfig);
     console.log("Google Cloud Storage client initialized successfully.");
 } catch (error: any) {
     console.error("Failed to initialize Google Cloud Storage client:", error);
@@ -73,6 +82,50 @@ export async function listPetImages(animalName: string): Promise<string[]> {
             console.error(`Bucket '${BUCKET_NAME}' not found.`);
              throw new Error(`Storage bucket '${BUCKET_NAME}' not found. Check configuration.`);
          }
+         if (error.message?.includes('Could not refresh access token')) {
+            console.error("Authentication error: Could not refresh access token. Verify GOOGLE_APPLICATION_CREDENTIALS or ADC setup.");
+            throw new Error("Authentication error accessing Google Cloud Storage. Please check server credentials setup.");
+         }
         throw new Error(`Failed to list images from Google Cloud Storage: ${error.message || 'Unknown GCS error'}`);
+    }
+}
+
+/**
+ * Fetches an image from a GCS URL and returns it as a Base64 Data URL.
+ * This runs on the server to avoid client-side CORS issues.
+ *
+ * @param imageUrl The public URL of the image in GCS.
+ * @returns A promise that resolves to the image as a Data URL string.
+ * @throws {Error} If fetching or conversion fails.
+ */
+export async function fetchGcsImageAsDataUrl(imageUrl: string): Promise<string> {
+    if (!imageUrl || !imageUrl.startsWith('https://storage.googleapis.com/')) {
+        throw new Error("Invalid GCS image URL provided.");
+    }
+
+    console.log(`Fetching GCS image from URL: ${imageUrl}`);
+    try {
+        const response = await fetch(imageUrl);
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch image from GCS: ${response.status} ${response.statusText}`);
+        }
+
+        const blob = await response.blob();
+
+        if (!blob || !blob.type.startsWith('image/')) {
+            throw new Error(`Invalid content type received from GCS: ${blob?.type}`);
+        }
+
+        // Convert Blob to Buffer, then to Base64 Data URL
+        const buffer = Buffer.from(await blob.arrayBuffer());
+        const dataUrl = `data:${blob.type};base64,${buffer.toString('base64')}`;
+
+        console.log(`Successfully fetched and converted GCS image to Data URL (size: ${dataUrl.length} chars).`);
+        return dataUrl;
+
+    } catch (error: any) {
+        console.error(`Error fetching or converting GCS image from URL (${imageUrl}):`, error);
+        throw new Error(`Failed to process GCS image: ${error.message || 'Unknown error'}`);
     }
 }

@@ -16,6 +16,8 @@ import FallingSakura from '@/components/animations/FallingSakura';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { QRCodeCanvas } from 'qrcode.react'; // Import QR Code component
+import { Progress } from "@/components/ui/progress"; // Import Progress component
+
 
 // AI flow imports
 import { generateSakuraPrompt } from '@/ai/flows/generate-sakura-prompt';
@@ -25,8 +27,8 @@ import { generateCantoneseStory } from '@/ai/flows/generate-cantonese-story';
 // ClipDrop service and helpers
 import { replaceBackground, dataUrlToBlob, blobToDataUrl } from '@/services/clipdrop';
 
-// Server Action import
-import { listPetImages } from '@/actions/gcsActions';
+// Server Action imports
+import { listPetImages, fetchGcsImageAsDataUrl } from '@/actions/gcsActions'; // Import new action
 
 // Types
 type ApiKeys = {
@@ -59,6 +61,12 @@ const TARGET_CONTENT_START_Y = 610; // Y position where the pet image content sh
 // ClipDrop dimension limit (set slightly lower for safety)
 const MAX_IMAGE_DIMENSION = 2048; // Use Clipdrop's actual limit
 
+// Canvas for resizing, separate from the final framing canvas
+let resizeCanvas: HTMLCanvasElement | null = null;
+if (typeof window !== 'undefined') {
+    resizeCanvas = document.createElement('canvas');
+    console.log("Resize canvas created.");
+}
 
 export default function SakuraPetFramesApp() {
   const { toast } = useToast();
@@ -95,6 +103,7 @@ export default function SakuraPetFramesApp() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const finalCanvasRef = useRef<HTMLCanvasElement>(null); // Used for framing
   const frameImageRef = useRef<HTMLImageElement | null>(null);
+   const captureCanvasRef = useRef<HTMLCanvasElement>(null); // Hidden canvas for webcam capture
 
    // Cleanup Object URL when component unmounts or image changes
    useEffect(() => {
@@ -267,36 +276,39 @@ export default function SakuraPetFramesApp() {
 
 
   const captureImage = () => {
-    if (videoRef.current) {
-       const tempCanvas = document.createElement('canvas');
-       const video = videoRef.current;
-       tempCanvas.width = video.videoWidth;
-       tempCanvas.height = video.videoHeight;
-       const context = tempCanvas.getContext('2d');
+     if (videoRef.current && captureCanvasRef.current) {
+         const canvas = captureCanvasRef.current;
+         const video = videoRef.current;
+         canvas.width = video.videoWidth;
+         canvas.height = video.videoHeight;
+         const context = canvas.getContext('2d');
 
-      if (context) {
-        context.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
-        const dataUrl = tempCanvas.toDataURL('image/png');
-         // Clear other image sources
-         setUploadedImage(null);
-         // setRemoteImageUrlInput(''); // REMOVED
-         setSelectedGcsImage(null); // Clear GCS selection
-         setCapturedImage(dataUrl); // Set captured image
-         setFinalFramedImage(null);
-         setGeneratedStory('');
-         if (currentObjectUrl) {
-             URL.revokeObjectURL(currentObjectUrl);
-             setCurrentObjectUrl(null);
+         if (context) {
+             context.drawImage(video, 0, 0, canvas.width, canvas.height);
+             const dataUrl = canvas.toDataURL('image/png');
+             // Clear other image sources
+             setUploadedImage(null);
+             setSelectedGcsImage(null);
+             setCapturedImage(dataUrl);
+             setFinalFramedImage(null);
+             setGeneratedStory('');
+             if (currentObjectUrl) {
+                 URL.revokeObjectURL(currentObjectUrl);
+                 setCurrentObjectUrl(null);
+             }
+             console.log("Image captured from webcam.");
+             stopWebcam();
+         } else {
+             console.error("Failed to get canvas context for capture");
+             toast({ title: "拍攝失敗", description: "無法從鏡頭拍攝圖片。", variant: "destructive" });
+             setUiError("無法從鏡頭拍攝圖片。");
          }
-         console.log("Image captured from webcam.");
-        stopWebcam();
-      } else {
-         console.error("Failed to get canvas context for capture");
-          toast({ title: "拍攝失敗", description: "無法從鏡頭拍攝圖片。", variant: "destructive" });
-          setUiError("無法從鏡頭拍攝圖片。");
-      }
-    }
-  };
+     } else {
+          console.error("Video ref or capture canvas ref not available for capture.");
+          toast({ title: "拍攝失敗", description: "元件未準備好拍攝。", variant: "destructive" });
+          setUiError("元件未準備好拍攝。");
+     }
+   };
 
   // Effect to clean up webcam stream when component unmounts
   useEffect(() => {
@@ -370,62 +382,34 @@ export default function SakuraPetFramesApp() {
          setCurrentObjectUrl(null);
      }
 
-     // Load the selected GCS image as a Data URL for processing
-     // setIsLoadingFromUrl(true); // Re-use loading state name, or create a new one
+     // Use the server action to load the image data URL
      setProgressText("由雲端載入緊圖片..."); // Indicate loading
      setProgress(5); // Show some progress
      try {
-       const response = await fetch(imageUrl);
-       if (!response.ok) {
-         throw new Error(`無法載入圖片: ${response.statusText} (${response.status})`);
-       }
-       const blob = await response.blob();
-       if (!blob.type.startsWith('image/')) {
-         throw new Error("載入嘅檔案唔係有效嘅圖片格式。");
-       }
-       const dataUrl = await blobToDataUrl(blob);
-       setCapturedImage(dataUrl); // Store the loaded image data URL in capturedImage state
-       console.log("Selected GCS image loaded as Data URL:", imageUrl);
-       toast({ title: "圖片已選取", description: "已選取並載入雲端圖片。" });
-        setProgress(0); // Clear progress after load
-        setProgressText('');
+         const dataUrl = await fetchGcsImageAsDataUrl(imageUrl); // Call server action
+         if (!dataUrl) {
+             throw new Error("Server action returned empty data URL.");
+         }
+         setCapturedImage(dataUrl); // Store the loaded image data URL in capturedImage state
+         console.log("Selected GCS image loaded as Data URL via server action:", imageUrl);
+         toast({ title: "圖片已選取", description: "已選取並載入雲端圖片。" });
+         setProgress(0); // Clear progress after load
+         setProgressText('');
      } catch (error: any) {
-       console.error("Error loading selected GCS image:", error);
-       toast({ title: "載入失敗", description: `無法載入選定嘅圖片: ${error.message}`, variant: "destructive" });
-       setUiError(`無法載入選定嘅圖片: ${error.message}`);
-       setSelectedGcsImage(null); // Deselect on error
-       setProgress(0);
-       setProgressText('');
-     } finally {
-       // setIsLoadingFromUrl(false);
+         console.error("Error loading selected GCS image via server action:", error);
+         const errorMsg = `無法載入選定嘅圖片: ${error.message}`;
+         toast({ title: "載入失敗", description: errorMsg, variant: "destructive" });
+         setUiError(errorMsg);
+         setSelectedGcsImage(null); // Deselect on error
+         setProgress(0);
+         setProgressText('');
      }
    };
 
 
-
-  // Function to load image from URL (used internally now for selected GCS image)
-  const loadGcsImageAsDataUrl = async (imageUrl: string): Promise<string> => {
-      // No need for UI loading indicators here as it's called internally
-      try {
-          const response = await fetch(imageUrl);
-          if (!response.ok) {
-              throw new Error(`無法載入圖片: ${response.statusText} (${response.status})`);
-          }
-          const blob = await response.blob();
-          if (!blob.type.startsWith('image/')) {
-              throw new Error("載入嘅檔案唔係有效嘅圖片格式。");
-          }
-          return await blobToDataUrl(blob);
-      } catch (error: any) {
-          console.error("Error loading GCS image as data URL:", error);
-          throw new Error(`無法處理 GCS 圖片: ${error.message}`);
-      }
-  };
-
-
   const getCurrentImageAsDataUrl = (): Promise<string | null> => {
     return new Promise(async (resolve, reject) => {
-      if (capturedImage) { // Handles webcam, manually loaded URL, and now SELECTED GCS image
+      if (capturedImage) { // Handles webcam and SELECTED GCS image (now loaded via server action)
         resolve(capturedImage);
       } else if (uploadedImage) {
         try {
@@ -438,18 +422,7 @@ export default function SakuraPetFramesApp() {
              reject(new Error("Could not read uploaded image file."));
         }
       }
-      // Removed direct selectedGcsImage conversion here - it's loaded into capturedImage on selection
-      // else if (selectedGcsImage) {
-      //     try {
-      //         const dataUrl = await loadGcsImageAsDataUrl(selectedGcsImage);
-      //         resolve(dataUrl);
-      //     } catch (error: any) {
-      //         console.error("Error loading selected GCS image for processing:", error);
-      //         toast({ title: "圖片錯誤", description: `無法處理選定嘅雲端圖片: ${error.message}`, variant: "destructive" });
-      //         setUiError(`無法處理選定嘅雲端圖片: ${error.message}`);
-      //         reject(error);
-      //     }
-      // }
+      // Removed direct conversion logic for selectedGcsImage - it's handled by handleSelectGcsImage now
       else {
         resolve(null);
       }
@@ -462,6 +435,14 @@ export default function SakuraPetFramesApp() {
     maxDimension: number
   ): Promise<{ resizedDataUrl: string; resizedBlob: Blob }> => {
     return new Promise((resolve, reject) => {
+       if (!resizeCanvas) {
+           return reject(new Error("Resize canvas is not available."));
+       }
+       const ctx = resizeCanvas.getContext('2d');
+       if (!ctx) {
+            return reject(new Error("Could not get resize canvas context."));
+       }
+
       const img = new window.Image();
       img.onload = async () => {
         const { naturalWidth: width, naturalHeight: height } = img;
@@ -500,17 +481,12 @@ export default function SakuraPetFramesApp() {
 
         console.log(`New image dimensions: ${newWidth}x${newHeight}`);
 
-        // Use a temporary canvas for resizing, not the main capture or final canvas
-        const resizeCanvas = document.createElement('canvas');
+        // Use the dedicated resizeCanvas
         resizeCanvas.width = newWidth;
         resizeCanvas.height = newHeight;
-        const ctx = resizeCanvas.getContext('2d');
-
-        if (!ctx) {
-          return reject(new Error("Could not get canvas context for resizing."));
-        }
 
         try {
+          ctx.clearRect(0, 0, newWidth, newHeight); // Clear before drawing
           ctx.drawImage(img, 0, 0, newWidth, newHeight);
           // Use JPEG for potentially better compression on large images, adjust quality as needed
           const resizedDataUrl = resizeCanvas.toDataURL('image/jpeg', 0.9);
@@ -545,19 +521,23 @@ export default function SakuraPetFramesApp() {
     let initialImageDataUrl: string | null = null;
     try {
         initialImageDataUrl = await getCurrentImageAsDataUrl();
+        if (!initialImageDataUrl) { // Check if null or empty
+             throw new Error("No image source available (upload, webcam, or GCS selection).");
+        }
     } catch (error: any) {
-        setUiError("讀取圖片失敗，請重試。");
+        console.error("Error getting current image data URL:", error);
+        setUiError(`讀取圖片失敗: ${error.message}. 請重試。`);
         setIsGenerating(false);
-        toast({ title: "圖片錯誤", description: uiError, variant: "destructive" });
+        toast({ title: "圖片錯誤", description: `讀取圖片失敗: ${error.message}`, variant: "destructive" });
         return;
     }
-    // Updated check: Ensure at least one image source is present
-    if (!uploadedImage && !capturedImage) { // capturedImage now covers webcam and selected GCS image
-        toast({ title: "未有圖片", description: "請上載、拍攝或由雲端選擇寵物相片先。", variant: "destructive" });
-        setUiError("請上載、拍攝或由雲端選擇寵物相片先。");
-        setIsGenerating(false);
-        return;
-    }
+    // // Redundant check - covered by the try-catch block above
+    // if (!uploadedImage && !capturedImage) {
+    //     toast({ title: "未有圖片", description: "請上載、拍攝或由雲端選擇寵物相片先。", variant: "destructive" });
+    //     setUiError("請上載、拍攝或由雲端選擇寵物相片先。");
+    //     setIsGenerating(false);
+    //     return;
+    // }
 
      if (!selectedCategory || selectedTags.length === 0) {
       toast({ title: "未揀好", description: "請選擇一個背景主題同至少一個風格。", variant: "destructive" });
@@ -585,13 +565,8 @@ export default function SakuraPetFramesApp() {
 
         console.log("Checking image size...");
         let resizedResult;
-         // Get the current image data URL again for resizing, in case it was just loaded
-         const currentImageDataUrl = await getCurrentImageAsDataUrl();
-         if (!currentImageDataUrl) {
-             throw new Error("Current image data URL is missing before resize check.");
-         }
         try {
-             resizedResult = await resizeImageIfNeeded(currentImageDataUrl, MAX_IMAGE_DIMENSION);
+             resizedResult = await resizeImageIfNeeded(initialImageDataUrl, MAX_IMAGE_DIMENSION); // Use the already fetched URL
         } catch(error: any) {
             console.error("Error during image resize check:", error);
             setUiError(`圖片處理出錯: ${error.message}`);
@@ -890,10 +865,10 @@ export default function SakuraPetFramesApp() {
 
 
   // Derive current image source for preview
-  // Order: captured (webcam/selected GCS), uploaded (file), null
+  // Order: captured (webcam/selected GCS), uploaded (file object URL), null
   const previewImageSrc = capturedImage || currentObjectUrl;
   const showWebcam = isWebcamOpen && !capturedImage;
-  // Updated condition to check selectedTags array length and animalName, and selectedGcsImage
+  // Updated condition to check selectedTags array length and animalName
    const canGenerate = !!(uploadedImage || capturedImage) && !!selectedCategory && selectedTags.length > 0 && !!apiKeys.clipdropKey && !!animalName;
 
   return (
@@ -922,17 +897,12 @@ export default function SakuraPetFramesApp() {
                         />
                     ))}
                   </div>
-                  <div
-                    className="bg-gradient-to-r from-pink-400 via-purple-500 to-teal-400 h-4 rounded-full transition-all duration-500 ease-out flex items-center justify-center text-xs font-medium text-white shadow-md"
-                    style={{ width: `${progress}%` }}
-                    role="progressbar"
-                    aria-valuenow={progress}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
+                   <Progress
+                    value={progress}
+                    className="h-4 w-full border border-pink-200 bg-gray-200 dark:bg-gray-700 shadow-inner"
+                    indicatorClassName="bg-gradient-to-r from-pink-400 via-purple-500 to-teal-400 transition-all duration-500 ease-out"
                     aria-label="Generation Progress"
-                  >
-                     {progress > 10 && `${progress}%`}
-                  </div>
+                   />
               </div>
                <p className="text-sm text-muted-foreground mt-3">{progress < 100 ? '請稍等片刻...' : '變身完成！'}</p>
           </div>
@@ -1150,20 +1120,23 @@ export default function SakuraPetFramesApp() {
                                <div className="mt-4">
                                    <Label>預覽:</Label>
                                    <img
-                                      // Use selectedGcsImage directly for preview if it's the source, otherwise use derived previewImageSrc
-                                      src={selectedGcsImage || previewImageSrc}
+                                      src={previewImageSrc} // Use the derived preview source
                                       alt="已上載、拍攝或由雲端選取嘅寵物相"
                                       width={300}
                                       height={225}
                                       className="rounded-md border mt-1 object-cover bg-muted shadow-md"
                                       data-ai-hint="pet animal"
                                        onError={(e) => {
-                                          console.error("Error loading preview image:", e);
+                                          console.error("Error loading preview image:", e, previewImageSrc);
                                           toast({ title: "圖片載入錯誤", description: "無法顯示預覽圖片。", variant: "destructive" });
                                           setUiError("無法顯示預覽圖片。");
-                                           if (selectedGcsImage) setSelectedGcsImage(null); // Clear selection if GCS image fails
-                                           else if (previewImageSrc === currentObjectUrl) setCurrentObjectUrl(null);
-                                           else if (previewImageSrc === capturedImage) setCapturedImage(null);
+                                           // Clear the problematic source
+                                           if (previewImageSrc === capturedImage) setCapturedImage(null);
+                                           else if (previewImageSrc === currentObjectUrl) {
+                                               setUploadedImage(null); // Also clear the file state
+                                               setCurrentObjectUrl(null);
+                                               URL.revokeObjectURL(previewImageSrc);
+                                           }
                                        }}
                                    />
                                </div>
@@ -1313,7 +1286,7 @@ export default function SakuraPetFramesApp() {
                                        </DialogDescription>
                                    </DialogHeader>
                                    {finalFramedImage && finalFramedImage.length < 2953 ? ( // Check if data URL is short enough
-                                       <div className="flex justify-center py-4">
+                                       <div className="flex justify-center py-4 bg-white p-2 rounded-md">
                                           <QRCodeCanvas value={finalFramedImage} size={256} includeMargin={true} />
                                        </div>
                                    ) : (
@@ -1341,6 +1314,8 @@ export default function SakuraPetFramesApp() {
 
            {/* Hidden canvas for final image composition */}
            <canvas ref={finalCanvasRef} className="hidden"></canvas>
+            {/* Hidden canvas for webcam capture */}
+           <canvas ref={captureCanvasRef} className="hidden"></canvas>
 
           </CardContent>
            <CardFooter className="text-center text-xs text-muted-foreground justify-center non-printable pt-6">
