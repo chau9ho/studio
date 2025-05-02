@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -70,7 +71,7 @@ export default function SakuraPetFramesApp() {
 
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null); // Used for webcam capture and potential resize
+  const canvasRef = useRef<HTMLCanvasElement>(null); // Used for webcam capture
   const finalCanvasRef = useRef<HTMLCanvasElement>(null); // Used for framing
   const frameImageRef = useRef<HTMLImageElement | null>(null);
 
@@ -103,7 +104,7 @@ export default function SakuraPetFramesApp() {
       }
     }
     const frameImg = new window.Image();
-    frameImg.src = '/frame.png';
+    frameImg.src = '/frame.png'; // Assumes frame.png is in the public folder
     frameImg.onload = () => {
         frameImageRef.current = frameImg;
         console.log("Frame image loaded");
@@ -291,10 +292,8 @@ export default function SakuraPetFramesApp() {
 
         console.log(`New image dimensions: ${newWidth}x${newHeight}`);
 
-        if (!canvasRef.current) {
-            return reject(new Error("Resize canvas is not available."));
-        }
-        const canvas = canvasRef.current; // Reuse capture canvas
+        // Create a temporary canvas in memory for resizing
+        const canvas = document.createElement('canvas');
         canvas.width = newWidth;
         canvas.height = newHeight;
         const ctx = canvas.getContext('2d');
@@ -305,7 +304,8 @@ export default function SakuraPetFramesApp() {
 
         try {
           ctx.drawImage(img, 0, 0, newWidth, newHeight);
-          const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.9); // Use JPEG for potentially smaller size
+          // Use JPEG for potentially smaller size, adjust quality as needed (0.9 = 90%)
+          const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
           console.log("Image resized successfully.");
           const resizedBlob = await dataUrlToBlob(resizedDataUrl);
           resolve({ resizedDataUrl, resizedBlob });
@@ -345,7 +345,7 @@ export default function SakuraPetFramesApp() {
     }
     if (!initialImageDataUrl) {
         toast({ title: "No Image", description: "Please upload or capture an image first.", variant: "destructive" });
-        setUiError("Please upload or capture an image first.");
+        setUiError("請上載或拍攝寵物相片先。");
         setIsGenerating(false);
         return;
     }
@@ -353,19 +353,19 @@ export default function SakuraPetFramesApp() {
     // --- Basic Input Checks ---
      if (!selectedCategory || !selectedTag) {
       toast({ title: "Missing Selection", description: "Please select a category and tag.", variant: "destructive" });
-      setUiError("Please select a category and tag.");
+      setUiError("請選擇背景主題同風格。");
       setIsGenerating(false);
       return;
     }
      if (!apiKeys.clipdropKey) {
        toast({ title: "API Key Missing", description: "Please enter and save your ClipDrop API key.", variant: "destructive" });
-       setUiError("Please enter and save your ClipDrop API key.");
+       setUiError("請輸入同儲存 ClipDrop API Key。");
        setIsGenerating(false);
        return;
      }
      if (!animalName) {
        toast({ title: "Animal Name Missing", description: "Please enter the animal's name.", variant: "destructive" });
-       setUiError("Please enter the animal's name.");
+       setUiError("請輸入寵物名稱。");
        setIsGenerating(false);
        return;
      }
@@ -398,7 +398,9 @@ export default function SakuraPetFramesApp() {
              if (!promptResult || !promptResult.prompt) throw new Error("Empty response from prompt generation");
         } catch (error: any) {
              console.error("Error generating prompt:", error);
-             throw new Error(`Failed to generate background prompt: ${error.message || 'Unknown AI error'}`);
+             const errorMsg = error.message || 'Unknown AI error';
+              setUiError(`生成背景提示出錯: ${errorMsg}. 請檢查 AI 配置或稍後再試。`);
+             throw new Error(`Failed to generate background prompt: ${errorMsg}`);
         }
         const bgPrompt = promptResult.prompt;
         setProgress(25);
@@ -413,7 +415,9 @@ export default function SakuraPetFramesApp() {
              if (!analysisResult || !analysisResult.animalDescription) throw new Error("Empty response from animal analysis");
         } catch (error: any) {
             console.error("Error analyzing animal:", error);
-            throw new Error(`Failed to analyze animal features: ${error.message || 'Unknown AI error'}`);
+             const errorMsg = error.message || 'Unknown AI error';
+             setUiError(`分析動物特徵出錯: ${errorMsg}. 請檢查 AI 配置或稍後再試。`);
+             throw new Error(`Failed to analyze animal features: ${errorMsg}`);
         }
         const animalDesc = analysisResult.animalDescription;
         setProgress(50);
@@ -432,7 +436,9 @@ export default function SakuraPetFramesApp() {
              if (!storyResult || !storyResult.story) throw new Error("Empty response from story generation");
          } catch (error: any) {
               console.error("Error generating story:", error);
-              throw new Error(`Failed to generate Cantonese story: ${error.message || 'Unknown AI error'}`);
+               const errorMsg = error.message || 'Unknown AI error';
+               setUiError(`寫故仔出錯: ${errorMsg}. 請檢查 AI 配置或稍後再試。`);
+               throw new Error(`Failed to generate Cantonese story: ${errorMsg}`);
          }
          setGeneratedStory(storyResult.story);
          setProgress(65);
@@ -469,7 +475,7 @@ export default function SakuraPetFramesApp() {
         console.error("Error during generation process:", error);
         // Use the specific UI error if set, otherwise use the caught error message
         const displayError = uiError || error.message || "An unknown error occurred.";
-        if (!uiError) { // Only set UI error if not already set (e.g., by ClipDrop specific handler)
+        if (!uiError) { // Only set UI error if not already set (e.g., by ClipDrop specific handler or AI errors)
             setUiError(`唔好意思, 出咗啲問題: ${displayError}. 請一陣再試啦。`);
         }
         toast({ title: "變身失敗", description: displayError, variant: "destructive" });
@@ -487,14 +493,14 @@ export default function SakuraPetFramesApp() {
         if (!finalCanvasRef.current) {
              console.error("Final canvas ref is not available.");
              toast({ title: "Framing Error", description: "Canvas not ready for framing.", variant: "destructive" });
-             setUiError("Canvas not ready for framing.");
+             setUiError("相框畫布未準備好。");
              reject(new Error("Canvas not ready"));
              return;
          }
         if (!frameImageRef.current || !frameImageRef.current.complete || frameImageRef.current.naturalWidth === 0) {
              console.error("Frame image ref is not available, not loaded, or has zero dimensions.");
              toast({ title: "Framing Error", description: "Frame image not loaded or invalid. Check console.", variant: "destructive" });
-             setUiError("Frame image not loaded or invalid.");
+             setUiError("相框圖片載入失敗或無效。");
              reject(new Error("Frame image not ready"));
              return;
          }
@@ -506,7 +512,7 @@ export default function SakuraPetFramesApp() {
         if (!ctx) {
              console.error("Could not get 2D context from final canvas.");
              toast({ title: "Framing Error", description: "Could not get canvas context.", variant: "destructive" });
-             setUiError("Could not get canvas context.");
+             setUiError("無法獲取畫布上下文。");
              reject(new Error("Could not get canvas context"));
              return;
         }
@@ -516,12 +522,13 @@ export default function SakuraPetFramesApp() {
         console.log(`Canvas dimensions set to ${FRAME_WIDTH}x${FRAME_HEIGHT}`);
 
          try {
+             // Draw the frame FIRST
              ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
              console.log("Frame image drawn onto canvas.");
          } catch (drawError) {
               console.error("Error drawing frame image onto canvas:", drawError);
               toast({ title: "Framing Error", description: "Could not draw the frame image.", variant: "destructive" });
-              setUiError("Could not draw the frame image.");
+              setUiError("無法繪製相框圖片。");
               reject(new Error("Failed to draw frame image on canvas"));
               return;
          }
@@ -533,14 +540,14 @@ export default function SakuraPetFramesApp() {
 
             const targetWidth = TARGET_CONTENT_WIDTH;
             const targetHeight = TARGET_CONTENT_HEIGHT;
-            const targetX = (FRAME_WIDTH - targetWidth) / 2;
-            const targetY = TARGET_CONTENT_START_Y;
+            const targetX = (FRAME_WIDTH - targetWidth) / 2; // Center horizontally
+            const targetY = TARGET_CONTENT_START_Y; // Start at specific Y
 
              let drawWidth, drawHeight;
              const imgRatio = processedImg.naturalWidth / processedImg.naturalHeight;
              const targetRatio = targetWidth / targetHeight;
 
-             // Fit image within target dimensions while maintaining aspect ratio
+             // Scale the image to fit within the target area (1441x1369) while maintaining aspect ratio
              if (imgRatio > targetRatio) {
                  // Image is wider than target proportionally, fit to width
                  drawWidth = targetWidth;
@@ -555,7 +562,7 @@ export default function SakuraPetFramesApp() {
              drawWidth = Math.min(drawWidth, targetWidth);
              drawHeight = Math.min(drawHeight, targetHeight);
 
-             // Calculate position to center the image within the target area
+             // Calculate position to center the SCALED image within the TARGET area
              const drawX = targetX + (targetWidth - drawWidth) / 2;
              const drawY = targetY + (targetHeight - drawHeight) / 2;
 
@@ -564,8 +571,9 @@ export default function SakuraPetFramesApp() {
             console.log(`Calculated draw position: X=${drawX}, Y=${drawY}`);
 
             try {
+                 // Draw the SCALED and CENTERED processed image ON TOP of the frame
                  ctx.drawImage(processedImg, drawX, drawY, drawWidth, drawHeight);
-                 console.log("Processed image drawn onto canvas.");
+                 console.log("Processed image drawn onto canvas over the frame.");
 
                  const finalDataUrl = canvas.toDataURL('image/png');
                  console.log("Final image generated as Data URL.");
@@ -574,14 +582,14 @@ export default function SakuraPetFramesApp() {
             } catch (drawError) {
                 console.error("Error drawing processed image onto canvas:", drawError);
                  toast({ title: "Framing Error", description: "Could not draw final image.", variant: "destructive" });
-                 setUiError("Could not draw final image.");
+                 setUiError("無法繪製最終寵物圖片。");
                  reject(new Error("Failed to draw processed image on canvas"));
             }
         };
         processedImg.onerror = (e) => {
             console.error("Failed to load processed image for framing:", e);
             toast({ title: "Framing Error", description: "Failed to load processed image for framing.", variant: "destructive" });
-            setUiError("Failed to load processed image for framing.");
+            setUiError("無法載入已處理的寵物圖片。");
             reject(new Error("Failed to load processed image"));
         };
         if (processedImageSrc && typeof processedImageSrc === 'string' && processedImageSrc.startsWith('data:image')) {
@@ -590,7 +598,7 @@ export default function SakuraPetFramesApp() {
         } else {
              console.error("Invalid processed image source provided for framing:", processedImageSrc);
              toast({ title: "Framing Error", description: "Invalid processed image source for framing.", variant: "destructive" });
-             setUiError("Invalid processed image source for framing.");
+             setUiError("無效的已處理圖片來源。");
              reject(new Error("Invalid processed image source"));
         }
      });
@@ -600,7 +608,7 @@ export default function SakuraPetFramesApp() {
   const handleDownload = () => {
     if (!finalFramedImage) {
       toast({ title: "No Image", description: "Generate the final image first.", variant: "destructive" });
-      setUiError("Generate the final image first.");
+      setUiError("請先生成最終圖片。");
       return;
     }
     try {
@@ -613,7 +621,7 @@ export default function SakuraPetFramesApp() {
     } catch (error) {
          console.error("Error creating download link:", error);
          toast({ title: "Download Error", description: "Could not initiate image download.", variant: "destructive" });
-          setUiError("Could not initiate image download.");
+          setUiError("無法開始下載圖片。");
     }
   };
 
@@ -634,7 +642,8 @@ export default function SakuraPetFramesApp() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Simplified Setup */}
+          {/* Simplified Setup - Optional, keep if needed */}
+          {/*
           <Card>
              <CardHeader>
                  <CardTitle className="text-xl">基本設定</CardTitle>
@@ -643,9 +652,9 @@ export default function SakuraPetFramesApp() {
              <CardContent className="space-y-4">
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <Label htmlFor="animalName">寵物名 (Animal's Name)</Label>
+                        <Label htmlFor="animalNameSetup">寵物名 (Animal's Name)</Label>
                         <Input
-                            id="animalName"
+                            id="animalNameSetup"
                             type="text"
                             placeholder="例如: Mochi, 波子"
                             value={animalName}
@@ -655,9 +664,9 @@ export default function SakuraPetFramesApp() {
                         />
                     </div>
                     <div>
-                    <Label htmlFor="clipdropKey">ClipDrop API Key</Label>
+                    <Label htmlFor="clipdropKeySetup">ClipDrop API Key</Label>
                     <Input
-                        id="clipdropKey"
+                        id="clipdropKeySetup"
                         type="password"
                         placeholder="Your ClipDrop Key"
                         value={apiKeys.clipdropKey}
@@ -674,143 +683,180 @@ export default function SakuraPetFramesApp() {
                  </Button>
               </CardFooter>
           </Card>
+          */}
 
-          {/* Step 1: Upload or Capture */}
+          {/* Step 1 & 2 Combined: Upload/Capture and Style */}
           <Card>
              <CardHeader>
-                <CardTitle className="text-xl">1. 上載或拍攝寵物相片</CardTitle>
+                <CardTitle className="text-xl">1. 準備你嘅寵物相</CardTitle>
              </CardHeader>
              <CardContent className="space-y-4">
-                 <Tabs defaultValue="upload">
-                     <TabsList className="grid w-full grid-cols-2">
-                         <TabsTrigger value="upload" disabled={isGenerating}><Upload className="mr-2 h-4 w-4 inline"/>上載圖片</TabsTrigger>
-                         <TabsTrigger value="webcam" disabled={isGenerating}><Camera className="mr-2 h-4 w-4 inline"/>即時拍攝</TabsTrigger>
-                     </TabsList>
-                     <TabsContent value="upload">
-                         <div className="space-y-2">
-                            <Label htmlFor="picture">揀選相片檔案 (建議 2000x2000px 以下)</Label>
-                            <Input id="picture" type="file" accept="image/*" onChange={handleImageUpload} disabled={isGenerating} />
-                         </div>
-                     </TabsContent>
-                     <TabsContent value="webcam">
-                         <div className="space-y-2">
-                             {!isWebcamOpen && (
-                                <Button onClick={startWebcam} variant="outline" disabled={hasCameraPermission === false || isGenerating}>
-                                    <Camera className="mr-2 h-4 w-4" /> 開啟鏡頭
-                                </Button>
-                             )}
-                              <div className={`relative aspect-video bg-muted rounded-md overflow-hidden ${!showWebcam ? 'hidden' : ''}`}>
-                                  <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
-                                   {isWebcamOpen && (
-                                        <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-2">
-                                            <Button onClick={captureImage} size="icon" variant="destructive" title="影相">
-                                                <Camera />
-                                            </Button>
-                                            <Button onClick={stopWebcam} size="icon" variant="secondary" title="關閉鏡頭">
-                                                <X/>
-                                            </Button>
-                                        </div>
-                                   )}
-                              </div>
-                             {hasCameraPermission === false && (
-                                 <Alert variant="destructive">
-                                    <AlertTitle>鏡頭權限被拒</AlertTitle>
-                                    <AlertDescription>
-                                       請喺瀏覽器設定允許使用鏡頭，然後可能需要重新整理頁面。
-                                    </AlertDescription>
-                                </Alert>
-                             )}
-                             {hasCameraPermission === null && isWebcamOpen && (
-                                 <p className="text-sm text-muted-foreground">要求鏡頭權限中...</p>
-                             )}
-                            {/* Canvas for webcam capture AND resizing */}
-                            <canvas ref={canvasRef} className="hidden"></canvas>
-                         </div>
-                     </TabsContent>
-                 </Tabs>
-
-                  {previewImageSrc && (
-                     <div className="mt-4">
-                         <Label>預覽:</Label>
-                         <img
-                            src={previewImageSrc}
-                            alt="已上載或拍攝的寵物相"
-                            width={300}
-                            height={225}
-                            className="rounded-md border mt-1 object-cover bg-muted"
-                            data-ai-hint="pet animal"
-                             onError={(e) => {
-                                console.error("Error loading preview image:", e);
-                                toast({ title: "圖片載入錯誤", description: "無法顯示預覽圖片。", variant: "destructive" });
-                                setUiError("無法顯示預覽圖片。");
-                                if (previewImageSrc === currentObjectUrl) setCurrentObjectUrl(null);
-                                if (previewImageSrc === capturedImage) setCapturedImage(null);
-                             }}
-                         />
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     {/* Left side: Image Input */}
+                     <div className="space-y-4">
+                         <Tabs defaultValue="upload">
+                             <TabsList className="grid w-full grid-cols-2">
+                                 <TabsTrigger value="upload" disabled={isGenerating}><Upload className="mr-2 h-4 w-4 inline"/>上載圖片</TabsTrigger>
+                                 <TabsTrigger value="webcam" disabled={isGenerating}><Camera className="mr-2 h-4 w-4 inline"/>即時拍攝</TabsTrigger>
+                             </TabsList>
+                             <TabsContent value="upload">
+                                 <div className="space-y-2">
+                                    <Label htmlFor="picture">揀選相片檔案 (建議 2000x2000px 以下)</Label>
+                                    <Input id="picture" type="file" accept="image/*" onChange={handleImageUpload} disabled={isGenerating} />
+                                 </div>
+                             </TabsContent>
+                             <TabsContent value="webcam">
+                                 <div className="space-y-2">
+                                     {!isWebcamOpen && (
+                                        <Button onClick={startWebcam} variant="outline" disabled={hasCameraPermission === false || isGenerating}>
+                                            <Camera className="mr-2 h-4 w-4" /> 開啟鏡頭
+                                        </Button>
+                                     )}
+                                      <div className={`relative aspect-video bg-muted rounded-md overflow-hidden ${!showWebcam ? 'hidden' : ''}`}>
+                                          <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
+                                           {isWebcamOpen && (
+                                                <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-2">
+                                                    <Button onClick={captureImage} size="icon" variant="destructive" title="影相">
+                                                        <Camera />
+                                                    </Button>
+                                                    <Button onClick={stopWebcam} size="icon" variant="secondary" title="關閉鏡頭">
+                                                        <X/>
+                                                    </Button>
+                                                </div>
+                                           )}
+                                      </div>
+                                     {hasCameraPermission === false && (
+                                         <Alert variant="destructive">
+                                            <AlertTitle>鏡頭權限被拒</AlertTitle>
+                                            <AlertDescription>
+                                               請喺瀏覽器設定允許使用鏡頭，然後可能需要重新整理頁面。
+                                            </AlertDescription>
+                                        </Alert>
+                                     )}
+                                     {hasCameraPermission === null && isWebcamOpen && (
+                                         <p className="text-sm text-muted-foreground">要求鏡頭權限中...</p>
+                                     )}
+                                    {/* Canvas for webcam capture */}
+                                    <canvas ref={canvasRef} className="hidden"></canvas>
+                                 </div>
+                             </TabsContent>
+                         </Tabs>
+                          {previewImageSrc && (
+                             <div className="mt-4">
+                                 <Label>預覽:</Label>
+                                 <img
+                                    src={previewImageSrc}
+                                    alt="已上載或拍攝的寵物相"
+                                    width={300}
+                                    height={225}
+                                    className="rounded-md border mt-1 object-cover bg-muted"
+                                    data-ai-hint="pet animal"
+                                     onError={(e) => {
+                                        console.error("Error loading preview image:", e);
+                                        toast({ title: "圖片載入錯誤", description: "無法顯示預覽圖片。", variant: "destructive" });
+                                        setUiError("無法顯示預覽圖片。");
+                                        if (previewImageSrc === currentObjectUrl) setCurrentObjectUrl(null);
+                                        if (previewImageSrc === capturedImage) setCapturedImage(null);
+                                     }}
+                                 />
+                             </div>
+                         )}
                      </div>
-                 )}
+
+                     {/* Right side: Style Selection & Hidden Inputs */}
+                     <div className="space-y-4">
+                         <div>
+                             <Label htmlFor="animalName">寵物名</Label>
+                             <Input
+                                 id="animalName"
+                                 type="text"
+                                 placeholder="例如: Mochi, 波子"
+                                 value={animalName}
+                                 onChange={(e) => setAnimalName(e.target.value)}
+                                 className="mt-1"
+                                 disabled={isGenerating}
+                             />
+                         </div>
+                         <div>
+                            <Label htmlFor="category">背景主題</Label>
+                            <Select onValueChange={(value) => { setSelectedCategory(value as Category); setSelectedTag(null); }} value={selectedCategory || ''} disabled={isGenerating}>
+                                <SelectTrigger id="category" className="mt-1">
+                                <SelectValue placeholder="選擇一個主題" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                {Object.keys(categories).map((cat) => (
+                                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                ))}
+                                </SelectContent>
+                            </Select>
+                         </div>
+                         <div>
+                            <Label htmlFor="tag">背景風格</Label>
+                             <Select onValueChange={(value) => { setSelectedTag(value); }} value={selectedTag || ''} disabled={!selectedCategory || isGenerating}>
+                                <SelectTrigger id="tag" className="mt-1">
+                                <SelectValue placeholder="選擇一個風格" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                {selectedCategory && categories[selectedCategory].map((tag) => (
+                                    <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                                ))}
+                                </SelectContent>
+                            </Select>
+                         </div>
+                         {/* Hidden API Key Input for simplicity, load from storage */}
+                          <div className="hidden">
+                             <Label htmlFor="clipdropKey">ClipDrop API Key</Label>
+                             <Input
+                                id="clipdropKey"
+                                type="password"
+                                value={apiKeys.clipdropKey}
+                                readOnly // Prevent user editing here
+                                className="mt-1"
+                             />
+                          </div>
+                          {!apiKeys.clipdropKey && (
+                              <Alert variant="destructive">
+                                  <AlertTitle>缺少 ClipDrop Key</AlertTitle>
+                                  <AlertDescription>
+                                      請在程式碼或環境變數中設定 ClipDrop API Key。
+                                  </AlertDescription>
+                              </Alert>
+                          )}
+                     </div>
+                 </div>
              </CardContent>
           </Card>
 
 
-          {/* Step 2: Select Style */}
-           <Card>
-            <CardHeader>
-                <CardTitle className="text-xl">2. 選擇背景風格</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div>
-                    <Label htmlFor="category">主題 (Category)</Label>
-                    <Select onValueChange={(value) => { setSelectedCategory(value as Category); setSelectedTag(null); }} value={selectedCategory || ''} disabled={isGenerating}>
-                        <SelectTrigger id="category" className="mt-1">
-                        <SelectValue placeholder="選擇一個主題" />
-                        </SelectTrigger>
-                        <SelectContent>
-                        {Object.keys(categories).map((cat) => (
-                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                        ))}
-                        </SelectContent>
-                    </Select>
-                 </div>
-                 <div>
-                    <Label htmlFor="tag">風格 (Tag)</Label>
-                     <Select onValueChange={(value) => { setSelectedTag(value); }} value={selectedTag || ''} disabled={!selectedCategory || isGenerating}>
-                        <SelectTrigger id="tag" className="mt-1">
-                        <SelectValue placeholder="選擇一個風格" />
-                        </SelectTrigger>
-                        <SelectContent>
-                        {selectedCategory && categories[selectedCategory].map((tag) => (
-                            <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-                        ))}
-                        </SelectContent>
-                    </Select>
-                 </div>
-            </CardContent>
-          </Card>
-
-          {/* Step 3: Generate */}
+          {/* Step 2: Generate */}
           <Card>
              <CardHeader>
-                <CardTitle className="text-xl">3. 開始變身！</CardTitle>
+                <CardTitle className="text-xl">2. 合成魔法相框</CardTitle>
              </CardHeader>
              <CardContent className="space-y-4">
                  <Button onClick={handleGenerateMagic} disabled={!canGenerate || isGenerating} className="w-full text-lg py-6 bg-gradient-to-r from-pink-500 to-teal-500 hover:from-pink-600 hover:to-teal-600 text-white shadow-lg transition duration-300 ease-in-out transform hover:scale-105 disabled:from-pink-300 disabled:to-teal-300 disabled:scale-100">
                     {isGenerating ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <WandSparkles className="mr-2 h-6 w-6" />}
-                    {isGenerating ? '魔法施展中...' : '開始變身魔法'}
+                    {isGenerating ? '變身中...' : '開始變身！'}
                  </Button>
                   {isGenerating && (
                     <div className="space-y-2">
                          {/* Fancy Progress Bar */}
                          <div className="w-full bg-gray-200 rounded-full h-6 dark:bg-gray-700 overflow-hidden shadow-inner">
                            <div
-                             className="bg-gradient-to-r from-pink-400 via-purple-400 to-teal-400 h-6 rounded-full transition-all duration-500 ease-out flex items-center justify-center text-xs font-medium text-white"
+                             className="bg-gradient-to-r from-pink-400 via-purple-400 to-teal-400 h-6 rounded-full transition-all duration-500 ease-out flex items-center justify-center text-xs font-medium text-white animate-pulse"
                              style={{ width: `${progress}%` }}
+                             role="progressbar"
+                             aria-valuenow={progress}
+                             aria-valuemin={0}
+                             aria-valuemax={100}
+                             aria-label="Generation Progress"
                            >
-                             {progress > 10 && `${progress}%`} {/* Show percentage when progress starts */}
+                            {/* Optional: Show percentage inside */}
+                             {/* {progress > 10 && `${progress}%`} */}
                            </div>
                          </div>
                          <p className="text-sm text-muted-foreground text-center font-medium animate-pulse">
-                            {progressText || '準備緊魔法材料...'}
+                            {progressText || '準備緊魔法材料...'} <span className="inline-block animate-bounce">✨</span>
                           </p>
                     </div>
                  )}
@@ -824,11 +870,11 @@ export default function SakuraPetFramesApp() {
           </Card>
 
 
-          {/* Step 4: Result */}
+          {/* Step 3: Result */}
            {(finalFramedImage || generatedStory) && !isGenerating && progress === 100 && (
              <Card>
                  <CardHeader>
-                    <CardTitle className="text-xl">4. ✨ 魔法相框完成 ✨</CardTitle>
+                    <CardTitle className="text-xl">3. ✨ 魔法相框完成 ✨</CardTitle>
                  </CardHeader>
                  <CardContent className="flex flex-col items-center space-y-4">
                     {finalFramedImage && (
