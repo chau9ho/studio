@@ -23,7 +23,7 @@ import { generateCantoneseStory } from '@/ai/flows/generate-cantonese-story';
 // ClipDrop service and helpers
 import { replaceBackground, dataUrlToBlob, blobToDataUrl } from '@/services/clipdrop';
 
-// Types - Removed openaiKey from ApiKeys
+// Types
 type ApiKeys = {
   clipdropKey: string;
 };
@@ -41,11 +41,10 @@ const categories: Record<Category, string[]> = {
 
 const FRAME_WIDTH = 1410;
 const FRAME_HEIGHT = 2250;
-const IMAGE_START_Y = 300; // H 300
+const IMAGE_START_Y = 300; // Y position where the pet image content starts
 
 export default function SakuraPetFramesApp() {
   const { toast } = useToast();
-  // Removed openaiKey state
   const [apiKeys, setApiKeys] = useState<ApiKeys>({ clipdropKey: '' });
   const [animalName, setAnimalName] = useState<string>('');
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
@@ -94,7 +93,6 @@ export default function SakuraPetFramesApp() {
       try {
         const parsedKeys = JSON.parse(storedKeys);
         setApiKeys({
-          // Removed openaiKey loading
           clipdropKey: parsedKeys.clipdropKey || '',
         });
         setAnimalName(parsedKeys.animalName || '');
@@ -113,14 +111,16 @@ export default function SakuraPetFramesApp() {
     };
     frameImg.onerror = () => {
         console.error("Failed to load frame image.");
-        toast({ title: "Error", description: "Failed to load the frame image.", variant: "destructive" });
+        // Ensure toast is available before calling
+        if (toast) {
+          toast({ title: "Error", description: "Failed to load the frame image from /public/frame.png", variant: "destructive" });
+        }
     };
-  }, [toast]);
+  }, [toast]); // Add toast to dependency array if used inside
 
   // Save API keys and animal name to localStorage
   const handleSaveKeys = () => {
     try {
-      // Removed openaiKey saving
       const dataToStore = JSON.stringify({ clipdropKey: apiKeys.clipdropKey, animalName });
       localStorage.setItem('sakuraPetFramesKeys', dataToStore);
       toast({ title: "Settings Saved", description: "ClipDrop API key and animal name saved successfully." });
@@ -258,8 +258,6 @@ export default function SakuraPetFramesApp() {
       toast({ title: "Missing Selection", description: "Please select a category and tag.", variant: "destructive" });
       return;
     }
-     // Removed check for openaiKey from state
-     // The check is now implicit in the flow's execution (will throw if GOOGLE_GENAI_API_KEY is missing)
 
     setIsLoading(prev => ({ ...prev, prompt: true }));
     setGeneratedPrompt('');
@@ -270,10 +268,10 @@ export default function SakuraPetFramesApp() {
        toast({ title: "Prompt Generated", description: "Sakura background prompt created." });
     } catch (error: any) {
       console.error("Error generating prompt:", error);
-      // Provide clearer error message if AI model is not configured
-      const errorMessage = error.message && error.message.includes("AI model is not configured")
-        ? "AI model is not configured. Please ensure the GOOGLE_GENAI_API_KEY is correctly set in your environment variables."
-        : `Failed to generate background prompt: ${error.message || error}`;
+      // Provide clearer error message if AI model is not configured or key is missing
+      const errorMessage = error.message && (error.message.includes("AI model is not configured") || error.message.includes("API key not valid"))
+        ? "AI model is unavailable or configured incorrectly. Please check your GOOGLE_GENAI_API_KEY and ensure it's valid and the model is available."
+        : `Failed to generate background prompt: ${error.message || 'Unknown AI error'}`;
       toast({ title: "Generation Error", description: errorMessage, variant: "destructive" });
     } finally {
       setIsLoading(prev => ({ ...prev, prompt: false }));
@@ -293,7 +291,6 @@ export default function SakuraPetFramesApp() {
       toast({ title: "No Image", description: "Please upload or capture an image first.", variant: "destructive" });
       return;
     }
-     // Removed check for openaiKey from state
 
     setIsLoading(prev => ({ ...prev, vision: true }));
     setAnimalDescription('');
@@ -304,10 +301,10 @@ export default function SakuraPetFramesApp() {
        toast({ title: "Animal Analyzed", description: "Animal features identified." });
     } catch (error: any) {
       console.error("Error analyzing animal:", error);
-      // Provide clearer error message if AI model is not configured
-      const errorMessage = error.message && error.message.includes("AI model is not configured")
-          ? "AI model is not configured. Please ensure the GOOGLE_GENAI_API_KEY is correctly set in your environment variables."
-          : `Failed to analyze animal features: ${error.message || error}`;
+       // Provide clearer error message if AI model is not configured or key is missing
+       const errorMessage = error.message && (error.message.includes("AI model is not configured") || error.message.includes("API key not valid"))
+          ? "AI model is unavailable or configured incorrectly. Please check your GOOGLE_GENAI_API_KEY and ensure it's valid and the model is available."
+          : `Failed to analyze animal features: ${error.message || 'Unknown AI error'}`;
       toast({ title: "Analysis Error", description: errorMessage, variant: "destructive" });
     } finally {
       setIsLoading(prev => ({ ...prev, vision: false }));
@@ -319,7 +316,6 @@ export default function SakuraPetFramesApp() {
       toast({ title: "Missing Information", description: "Please provide animal name, analyze the animal, and generate a background prompt first.", variant: "destructive" });
       return;
     }
-     // Removed check for openaiKey from state
 
     setIsLoading(prev => ({ ...prev, story: true }));
     setGeneratedStory('');
@@ -334,10 +330,10 @@ export default function SakuraPetFramesApp() {
        toast({ title: "Story Generated", description: "Cantonese story created." });
     } catch (error: any) {
       console.error("Error generating story:", error);
-      // Provide clearer error message if AI model is not configured
-      const errorMessage = error.message && error.message.includes("AI model is not configured")
-          ? "AI model is not configured. Please ensure the GOOGLE_GENAI_API_KEY is correctly set in your environment variables."
-          : `Failed to generate Cantonese story: ${error.message || error}`;
+      // Provide clearer error message if AI model is not configured or key is missing
+      const errorMessage = error.message && (error.message.includes("AI model is not configured") || error.message.includes("API key not valid"))
+          ? "AI model is unavailable or configured incorrectly. Please check your GOOGLE_GENAI_API_KEY and ensure it's valid and the model is available."
+          : `Failed to generate Cantonese story: ${error.message || 'Unknown AI error'}`;
       toast({ title: "Generation Error", description: errorMessage, variant: "destructive" });
     } finally {
       setIsLoading(prev => ({ ...prev, story: false }));
@@ -414,33 +410,42 @@ export default function SakuraPetFramesApp() {
         canvas.width = FRAME_WIDTH;
         canvas.height = FRAME_HEIGHT;
 
+        // Draw the white background first (optional, if frame is opaque)
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+        // Draw the frame image first
+        ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+
+        // Now load and draw the processed pet image on top
         const processedImg = new window.Image();
         processedImg.onload = () => {
-            const contentWidth = canvas.width;
-            const contentHeight = canvas.height - IMAGE_START_Y;
+            // Calculate the area where the pet image should go
+            const contentWidth = canvas.width; // Assume content width matches frame width
+            const contentHeight = canvas.height - IMAGE_START_Y; // Height of the content area
             const imgAspectRatio = processedImg.naturalWidth / processedImg.naturalHeight;
             const contentAspectRatio = contentWidth / contentHeight;
 
             let drawWidth, drawHeight, drawX, drawY;
 
-            if (imgAspectRatio > contentAspectRatio) {
+            // Fit the image within the content area, maintaining aspect ratio
+            if (imgAspectRatio > contentAspectRatio) { // Image is wider than content area
                 drawWidth = contentWidth;
                 drawHeight = drawWidth / imgAspectRatio;
-                 drawX = 0;
-                 drawY = IMAGE_START_Y + (contentHeight - drawHeight) / 2;
-            } else {
+                 drawX = 0; // Centered horizontally (or start at 0 if full width)
+                 drawY = IMAGE_START_Y + (contentHeight - drawHeight) / 2; // Centered vertically within content area
+            } else { // Image is taller than content area or same aspect ratio
                 drawHeight = contentHeight;
                 drawWidth = drawHeight * imgAspectRatio;
-                drawX = (contentWidth - drawWidth) / 2;
-                drawY = IMAGE_START_Y;
+                drawX = (contentWidth - drawWidth) / 2; // Centered horizontally
+                drawY = IMAGE_START_Y; // Start at the top of the content area
             }
 
             try {
+                 // Draw the processed image within the calculated bounds
                  ctx.drawImage(processedImg, drawX, drawY, drawWidth, drawHeight);
-                 ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+
+                 // Frame is already drawn underneath
 
                  const finalDataUrl = canvas.toDataURL('image/png');
                   setFinalFramedImage(finalDataUrl);
@@ -448,10 +453,10 @@ export default function SakuraPetFramesApp() {
                   setIsLoading(prev => ({ ...prev, clipdrop: false, framing: false })); // Stop both loadings
                   resolve();
             } catch (drawError) {
-                console.error("Error drawing images onto canvas:", drawError);
+                console.error("Error drawing processed image onto canvas:", drawError);
                  toast({ title: "Framing Error", description: "Could not draw final image.", variant: "destructive" });
                  setIsLoading(prev => ({ ...prev, clipdrop: false, framing: false })); // Stop both loadings
-                 reject(new Error("Failed to draw on canvas"));
+                 reject(new Error("Failed to draw processed image on canvas"));
             }
         };
         processedImg.onerror = () => {
@@ -514,10 +519,18 @@ export default function SakuraPetFramesApp() {
                  <CardDescription>Enter your ClipDrop API key and pet's name. Stored locally.</CardDescription>
              </CardHeader>
              <CardContent className="space-y-4">
-                  {/* Removed Google AI Key input field */}
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Empty div to maintain layout if needed, or adjust grid cols */}
-                    <div>{/* Placeholder for layout */}</div>
+                    <div>
+                        <Label htmlFor="animalName">Animal's Name</Label>
+                        <Input
+                            id="animalName"
+                            type="text"
+                            placeholder="e.g., Mochi"
+                            value={animalName}
+                            onChange={(e) => setAnimalName(e.target.value)}
+                            className="mt-1"
+                        />
+                    </div>
                     <div>
                     <Label htmlFor="clipdropKey">ClipDrop API Key</Label>
                     <Input
@@ -529,17 +542,6 @@ export default function SakuraPetFramesApp() {
                         className="mt-1"
                     />
                     </div>
-                 </div>
-                 <div>
-                    <Label htmlFor="animalName">Animal's Name</Label>
-                    <Input
-                        id="animalName"
-                        type="text"
-                        placeholder="e.g., Mochi"
-                        value={animalName}
-                        onChange={(e) => setAnimalName(e.target.value)}
-                        className="mt-1"
-                    />
                  </div>
              </CardContent>
               <CardFooter>
@@ -598,7 +600,7 @@ export default function SakuraPetFramesApp() {
                                     </AlertDescription>
                                 </Alert>
                              )}
-                             {hasCameraPermission === null && (
+                             {hasCameraPermission === null && isWebcamOpen && ( // Show only if webcam button was clicked
                                  <p className="text-sm text-muted-foreground">Checking camera permissions...</p>
                              )}
 
@@ -667,7 +669,6 @@ export default function SakuraPetFramesApp() {
                  </div>
             </CardContent>
              <CardFooter>
-                 {/* Updated button disabled logic - removed openaiKey check */}
                 <Button onClick={handleGeneratePrompt} disabled={!selectedCategory || !selectedTag || isLoading.prompt } size="sm">
                    {isLoading.prompt ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                    Generate Background Prompt
@@ -688,12 +689,10 @@ export default function SakuraPetFramesApp() {
              </CardHeader>
              <CardContent className="space-y-4">
                 <div className="flex flex-col sm:flex-row gap-4">
-                    {/* Updated button disabled logic - removed openaiKey check */}
                     <Button onClick={handleAnalyzeAnimal} disabled={!previewImageSrc || isLoading.vision } className="flex-1" variant="outline">
                         {isLoading.vision ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                         Analyze Animal (廣東話)
                     </Button>
-                    {/* Updated button disabled logic - removed openaiKey check */}
                     <Button onClick={handleGenerateStory} disabled={!animalName || !animalDescription || !generatedPrompt || isLoading.story } className="flex-1" variant="outline">
                          {isLoading.story ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                         Generate Story (廣東話)
@@ -711,7 +710,6 @@ export default function SakuraPetFramesApp() {
                         <p className="text-sm p-2 bg-muted/50 rounded-md mt-1 whitespace-pre-wrap">{generatedStory}</p>
                     </div>
                   )}
-                   {/* Updated button disabled logic - removed canGenerate check as it included openaiKey */}
                    <Button onClick={handleProcessImage} disabled={!previewImageSrc || !generatedPrompt || isProcessing || !apiKeys.clipdropKey} className="w-full">
                         {(isLoading.clipdrop || isLoading.framing) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                        {(isLoading.clipdrop && !isLoading.framing) ? 'Replacing Background...' : (isLoading.framing ? 'Framing Image...' : 'Generate Final Framed Image')}
@@ -770,3 +768,4 @@ export default function SakuraPetFramesApp() {
   );
 }
 
+    
