@@ -10,7 +10,7 @@
 
  import {ai} from '@/ai/ai-instance';
  import {z} from 'genkit';
- import { GenkitError } from 'genkit'; // Corrected import path
+ import { GenkitError } from 'genkit';
 
  const AnalyzeAnimalFeaturesInputSchema = z.object({
    photoDataUri: z
@@ -31,15 +31,9 @@
  export async function analyzeAnimalFeatures(
    input: AnalyzeAnimalFeaturesInput
  ): Promise<AnalyzeAnimalFeaturesOutput> {
-    // The AI model availability is checked implicitly when calling the flow.
-    // ai.generate checks for configured models internally in Genkit v1.x.
     try {
-        // Ensure a model is available before attempting the flow.
-        // Note: ai.model might not be sufficient if the prompt requires a specific model type (e.g., multimodal)
-        // A more robust check might involve trying a small test generation or checking capabilities.
-        if (!ai.listModels().find(m => m.startsWith('googleai/'))) { // Check if any Google AI model is configured
-             throw new Error("AI model (Google AI) is not configured. Please ensure the GOOGLE_GENAI_API_KEY is correctly set in your environment variables.");
-        }
+        // Removed the explicit ai.listModels() check.
+        // Genkit's ai.generate (used by the prompt) will handle model availability.
         return await analyzeAnimalFeaturesFlow(input);
     } catch (error: any) {
          // Catch errors from the flow execution, including initialization issues
@@ -48,9 +42,9 @@
         // Check if the error indicates an unconfigured model or API issue
         if (error instanceof GenkitError && (error.status === 'UNAVAILABLE' || error.status === 'INVALID_ARGUMENT')) {
              // Provide a user-friendly message for common configuration/API key issues
-             throw new Error("AI model is unavailable or configured incorrectly. Please check your GOOGLE_GENAI_API_KEY and ensure it's valid.");
+             throw new Error("AI model is unavailable or configured incorrectly. Please check your GOOGLE_GENAI_API_KEY and ensure it's valid and the model is available.");
         } else if (error.message && error.message.includes("AI model is not configured")) {
-             // Catch the specific error thrown above if still relevant
+             // Catch the specific error thrown previously if still relevant (though unlikely now)
             throw new Error(error.message);
         }
         // Re-throw other errors
@@ -97,5 +91,5 @@
     if (!output) {
         throw new Error("Failed to analyze animal: No output from prompt.");
     }
-   return output!;
+   return output; // No need for !, handled by the check above
  });
