@@ -8,14 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X, ImagePlus, Palette, Sparkles, PartyPopper, FileImage, PencilRuler, Printer, QrCode, Cog } from 'lucide-react'; // Added Cog icon
+import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X, ImagePlus, Palette, Sparkles, PartyPopper, FileImage, PencilRuler, Printer, QrCode, Cog, Link as LinkIcon } from 'lucide-react'; // Added Cog, LinkIcon icons
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import FallingSakura from '@/components/animations/FallingSakura';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog'; // Import Dialog components
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-
+import { QRCodeCanvas } from 'qrcode.react'; // Import QR Code component
 
 // AI flow imports
 import { generateSakuraPrompt } from '@/ai/flows/generate-sakura-prompt';
@@ -49,7 +49,7 @@ const categories: Record<Category, string[]> = {
 // Frame and Content Constants based on user request
 const FRAME_WIDTH = 1410; // Width of the frame.png
 const FRAME_HEIGHT = 2250; // Height of the frame.png
-const TARGET_CONTENT_WIDTH = 1410; // Target width for the pet photo within the frame (adjusted to match frame width)
+const TARGET_CONTENT_WIDTH = 1410; // Target width for the pet photo within the frame
 const TARGET_CONTENT_HEIGHT = 1369; // Target height for the pet photo within the frame
 const TARGET_CONTENT_START_Y = 610; // Y position where the pet image content should start
 
@@ -66,6 +66,8 @@ export default function SakuraPetFramesApp() {
   const [animalName, setAnimalName] = useState<string>('');
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null); // Base64 Data URL
+  const [remoteImageUrlInput, setRemoteImageUrlInput] = useState<string>(''); // State for QR code upload URL input
+  const [isLoadingFromUrl, setIsLoadingFromUrl] = useState<boolean>(false); // Loading state for URL fetch
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]); // Changed to array for multiple tags
   const [generatedStory, setGeneratedStory] = useState<string>('');
@@ -129,7 +131,7 @@ export default function SakuraPetFramesApp() {
 
     // Frame image loading remains the same
     const frameImg = new window.Image();
-    frameImg.src = '/frame.png';
+    frameImg.src = '/frame.png'; // Expects frame.png in the public folder
     frameImg.onload = () => {
         frameImageRef.current = frameImg;
         console.log("Frame image loaded successfully from /public/frame.png");
@@ -170,6 +172,7 @@ export default function SakuraPetFramesApp() {
   const clearAllStates = () => {
       setUploadedImage(null);
       setCapturedImage(null);
+      setRemoteImageUrlInput(''); // Clear URL input
       setFinalFramedImage(null);
       setGeneratedStory('');
       setSelectedCategory(null);
@@ -178,6 +181,7 @@ export default function SakuraPetFramesApp() {
       setProgress(0);
       setProgressText('');
       setIsGenerating(false);
+      setIsLoadingFromUrl(false); // Reset URL loading state
       if (currentObjectUrl) {
         URL.revokeObjectURL(currentObjectUrl);
         setCurrentObjectUrl(null);
@@ -193,11 +197,12 @@ export default function SakuraPetFramesApp() {
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
-       // Don't clear all states here, just the image related ones if needed
+       // Clear other image sources
        setUploadedImage(null);
        setCapturedImage(null);
-       setFinalFramedImage(null); // Clear previous result if new image is uploaded
-       setGeneratedStory(''); // Clear story too
+       setRemoteImageUrlInput('');
+       setFinalFramedImage(null);
+       setGeneratedStory('');
        if (currentObjectUrl) {
          URL.revokeObjectURL(currentObjectUrl);
          setCurrentObjectUrl(null);
@@ -211,6 +216,7 @@ export default function SakuraPetFramesApp() {
        setUploadedImage(file);
        const objectUrl = URL.createObjectURL(file);
        setCurrentObjectUrl(objectUrl);
+       console.log("Image uploaded and Object URL created:", objectUrl);
     }
   };
 
@@ -257,15 +263,17 @@ export default function SakuraPetFramesApp() {
       if (context) {
         context.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
         const dataUrl = tempCanvas.toDataURL('image/png');
-         // Don't clear all states here, just the image related ones
+         // Clear other image sources
          setUploadedImage(null);
+         setRemoteImageUrlInput('');
          setCapturedImage(dataUrl); // Set captured image
-         setFinalFramedImage(null); // Clear previous result
-         setGeneratedStory(''); // Clear story too
+         setFinalFramedImage(null);
+         setGeneratedStory('');
          if (currentObjectUrl) {
              URL.revokeObjectURL(currentObjectUrl);
-             setCurrentObjectUrl(null); // Clear object URL if switching from upload
+             setCurrentObjectUrl(null);
          }
+         console.log("Image captured from webcam.");
         stopWebcam();
       } else {
          console.error("Failed to get canvas context for capture");
@@ -282,10 +290,55 @@ export default function SakuraPetFramesApp() {
     };
   }, [stopWebcam]);
 
+  // Function to load image from URL (from QR code upload)
+  const handleLoadFromUrl = async () => {
+    if (!remoteImageUrlInput || !remoteImageUrlInput.startsWith('https://storage.googleapis.com/')) {
+      toast({ title: "網址無效", description: "請輸入有效嘅 Google Cloud Storage 圖片網址。", variant: "destructive" });
+      return;
+    }
+
+    setIsLoadingFromUrl(true);
+    setUiError(null);
+    try {
+      // Fetch the image from the public URL
+      const response = await fetch(remoteImageUrlInput);
+      if (!response.ok) {
+        throw new Error(`無法載入圖片: ${response.statusText} (${response.status})`);
+      }
+      const blob = await response.blob();
+
+      if (!blob.type.startsWith('image/')) {
+        throw new Error("載入嘅檔案唔係有效嘅圖片格式。");
+      }
+
+      const dataUrl = await blobToDataUrl(blob);
+
+      // Clear other image sources
+      setUploadedImage(null);
+      setCapturedImage(dataUrl); // Use capturedImage state for URL-loaded image (as it's now a data URL)
+      setFinalFramedImage(null);
+      setGeneratedStory('');
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+        setCurrentObjectUrl(null);
+      }
+
+      toast({ title: "圖片載入成功", description: "已成功由網址載入圖片。" });
+      console.log("Image loaded from URL:", remoteImageUrlInput);
+
+    } catch (error: any) {
+      console.error("Error loading image from URL:", error);
+      toast({ title: "載入失敗", description: `無法由網址載入圖片: ${error.message}`, variant: "destructive" });
+      setUiError(`無法由網址載入圖片: ${error.message}`);
+    } finally {
+      setIsLoadingFromUrl(false);
+    }
+  };
+
 
   const getCurrentImageAsDataUrl = (): Promise<string | null> => {
     return new Promise(async (resolve, reject) => {
-      if (capturedImage) {
+      if (capturedImage) { // This now handles both webcam and URL-loaded images
         resolve(capturedImage);
       } else if (uploadedImage) {
         try {
@@ -347,10 +400,11 @@ export default function SakuraPetFramesApp() {
 
         console.log(`New image dimensions: ${newWidth}x${newHeight}`);
 
-        const canvas = document.createElement('canvas');
-        canvas.width = newWidth;
-        canvas.height = newHeight;
-        const ctx = canvas.getContext('2d');
+        // Use a temporary canvas for resizing, not the main capture or final canvas
+        const resizeCanvas = document.createElement('canvas');
+        resizeCanvas.width = newWidth;
+        resizeCanvas.height = newHeight;
+        const ctx = resizeCanvas.getContext('2d');
 
         if (!ctx) {
           return reject(new Error("Could not get canvas context for resizing."));
@@ -358,7 +412,8 @@ export default function SakuraPetFramesApp() {
 
         try {
           ctx.drawImage(img, 0, 0, newWidth, newHeight);
-          const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+          // Use JPEG for potentially better compression on large images, adjust quality as needed
+          const resizedDataUrl = resizeCanvas.toDataURL('image/jpeg', 0.9);
           console.log("Image resized successfully.");
           const resizedBlob = await dataUrlToBlob(resizedDataUrl);
           resolve({ resizedDataUrl, resizedBlob });
@@ -396,9 +451,10 @@ export default function SakuraPetFramesApp() {
         toast({ title: "圖片錯誤", description: uiError, variant: "destructive" });
         return;
     }
-    if (!initialImageDataUrl) {
-        toast({ title: "未有圖片", description: "請上載或拍攝寵物相片先。", variant: "destructive" });
-        setUiError("請上載或拍攝寵物相片先。");
+    // Updated check: Ensure at least one image source is present
+    if (!uploadedImage && !capturedImage) {
+        toast({ title: "未有圖片", description: "請上載、拍攝或用QR Code載入寵物相片先。", variant: "destructive" });
+        setUiError("請上載、拍攝或用QR Code載入寵物相片先。");
         setIsGenerating(false);
         return;
     }
@@ -429,8 +485,13 @@ export default function SakuraPetFramesApp() {
 
         console.log("Checking image size...");
         let resizedResult;
+         // Get the current image data URL again for resizing, in case it was just loaded
+         const currentImageDataUrl = await getCurrentImageAsDataUrl();
+         if (!currentImageDataUrl) {
+             throw new Error("Current image data URL is missing before resize check.");
+         }
         try {
-             resizedResult = await resizeImageIfNeeded(initialImageDataUrl, MAX_IMAGE_DIMENSION);
+             resizedResult = await resizeImageIfNeeded(currentImageDataUrl, MAX_IMAGE_DIMENSION);
         } catch(error: any) {
             console.error("Error during image resize check:", error);
             setUiError(`圖片處理出錯: ${error.message}`);
@@ -459,6 +520,7 @@ export default function SakuraPetFramesApp() {
         console.log("Analyzing animal features...");
         let analysisResult;
         try {
+             // Use the resized data URL for analysis
              analysisResult = await analyzeAnimalFeatures({ photoDataUri: finalImageDataUrl });
              if (!analysisResult || !analysisResult.animalDescription) throw new Error("Empty response from animal analysis");
         } catch (error: any) {
@@ -477,7 +539,7 @@ export default function SakuraPetFramesApp() {
              storyResult = await generateCantoneseStory({
                  animalName: animalName,
                  animalDescription: animalDesc,
-                 backgroundDescription: bgPrompt,
+                 backgroundDescription: bgPrompt, // Use the background prompt for story context
              });
              if (!storyResult || !storyResult.story) throw new Error("Empty response from story generation");
          } catch (error: any) {
@@ -493,12 +555,25 @@ export default function SakuraPetFramesApp() {
         console.log("Replacing background via ClipDrop...");
         let clipdropResponse;
         try {
+             // Use the resized blob for ClipDrop
              clipdropResponse = await replaceBackground(finalImageBlob, bgPrompt, apiKeys.clipdropKey);
              if (!clipdropResponse || !clipdropResponse.image) throw new Error("Invalid response from ClipDrop");
         } catch (error: any) {
              console.error("Error processing image with ClipDrop:", error);
              // Use the user-friendly message for UI
              setUiError("唔好意思, 背景替換出錯，請一陣再試啦。");
+             // Check if the error is related to API key or usage limits
+             if (error.message.includes("API Error (401)") || error.message.includes("API Error (403)")) {
+                 setUiError("ClipDrop API Key 無效或已過期，請檢查設定。");
+             } else if (error.message.includes("API Error (429)")) {
+                  setUiError("ClipDrop API 使用量已達上限，請稍後再試。");
+             } else if (error.message.includes("API Error (400)") && error.message.includes("resolution exceeds")) {
+                // This case is handled by resize, but keep as fallback
+                 setUiError("圖片解像度過高，即使嘗試調整後仍無法處理。");
+             }
+              else if (error.message.includes("Failed to fetch")) {
+                 setUiError("無法連接 ClipDrop API，請檢查網絡或稍後再試。");
+             }
              throw error; // Re-throw the original error for logging but use friendly message for UI
         }
         const processedImageBlob = clipdropResponse.image;
@@ -569,6 +644,9 @@ export default function SakuraPetFramesApp() {
         console.log(`Canvas dimensions set to ${FRAME_WIDTH}x${FRAME_HEIGHT}`);
 
          try {
+             // Clear canvas before drawing
+             ctx.clearRect(0, 0, canvas.width, canvas.height);
+             // Draw the white frame first (assuming frame.png has transparency where the image goes)
              ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
              console.log("Frame image drawn onto canvas.");
          } catch (drawError) {
@@ -585,40 +663,50 @@ export default function SakuraPetFramesApp() {
         processedImg.onload = () => {
              console.log(`Processed image loaded: ${processedImg.naturalWidth}x${processedImg.naturalHeight}`);
 
+             // Target dimensions and position for the pet image within the frame
              const targetWidth = TARGET_CONTENT_WIDTH;
              const targetHeight = TARGET_CONTENT_HEIGHT;
-             const targetX = (FRAME_WIDTH - targetWidth) / 2;
-             const targetY = TARGET_CONTENT_START_Y;
+             const targetX = (FRAME_WIDTH - targetWidth) / 2; // Center horizontally
+             const targetY = TARGET_CONTENT_START_Y; // Start at H 610
 
-             let drawWidth, drawHeight, sourceX, sourceY, sourceWidth, sourceHeight;
+             // Calculate scaling to fit/fill the target area while maintaining aspect ratio
              const imgRatio = processedImg.naturalWidth / processedImg.naturalHeight;
              const targetRatio = targetWidth / targetHeight;
 
-             sourceWidth = processedImg.naturalWidth;
-             sourceHeight = processedImg.naturalHeight;
-             sourceX = 0;
-             sourceY = 0;
+             let drawWidth, drawHeight, sourceX, sourceY, sourceWidth, sourceHeight;
 
-             if (imgRatio > targetRatio) {
+             // Determine source dimensions to crop (if needed) and draw dimensions to scale
+             if (imgRatio >= targetRatio) {
+                 // Image is wider or same aspect ratio as target: Fit height, crop width
+                 sourceHeight = processedImg.naturalHeight;
+                 sourceWidth = processedImg.naturalHeight * targetRatio;
+                 sourceX = (processedImg.naturalWidth - sourceWidth) / 2;
+                 sourceY = 0;
                  drawWidth = targetWidth;
-                 drawHeight = drawWidth / imgRatio;
-             } else {
                  drawHeight = targetHeight;
-                 drawWidth = drawHeight * imgRatio;
+             } else {
+                 // Image is taller than target: Fit width, crop height
+                 sourceWidth = processedImg.naturalWidth;
+                 sourceHeight = processedImg.naturalWidth / targetRatio;
+                 sourceX = 0;
+                 sourceY = (processedImg.naturalHeight - sourceHeight) / 2;
+                 drawWidth = targetWidth;
+                 drawHeight = targetHeight;
              }
 
-             const drawX = targetX + (targetWidth - drawWidth) / 2;
-             const drawY = targetY + (targetHeight - drawHeight) / 2;
 
-             console.log(`Target area: ${targetWidth}x${targetHeight} at X=${targetX}, Y=${targetY}`);
-             console.log(`Calculated draw dimensions (fit): ${drawWidth}x${drawHeight}`);
-             console.log(`Calculated draw position (centered fit): X=${drawX}, Y=${drawY}`);
+             console.log(`Target area: W=${targetWidth}, H=${targetHeight} at X=${targetX}, Y=${targetY}`);
+             console.log(`Source crop: X=${sourceX.toFixed(2)}, Y=${sourceY.toFixed(2)}, W=${sourceWidth.toFixed(2)}, H=${sourceHeight.toFixed(2)}`);
+             console.log(`Draw dimensions: W=${drawWidth.toFixed(2)}, H=${drawHeight.toFixed(2)}`);
 
-            try {
-                ctx.drawImage(
+
+             try {
+                  // Draw the cropped and scaled pet image onto the canvas AT the target position
+                  ctx.drawImage(
                      processedImg,
-                     drawX, drawY, drawWidth, drawHeight
-                );
+                     sourceX, sourceY, sourceWidth, sourceHeight, // Source rectangle (cropped part of original)
+                     targetX, targetY, drawWidth, drawHeight      // Destination rectangle (scaled to fit target area)
+                 );
                 console.log("Processed image drawn onto canvas over the frame.");
 
                  const finalDataUrl = canvas.toDataURL('image/png');
@@ -697,8 +785,12 @@ export default function SakuraPetFramesApp() {
       });
   };
 
+  // QR code URL for upload service
+  const qrUploadUrl = `https://upload-photo-dot-comfyuiserver2024.uc.r.appspot.com/?userName=${encodeURIComponent(animalName || 'Pet')}`;
 
-  // Derive current image source for preview, preferring captured, then uploaded (via Object URL)
+
+  // Derive current image source for preview
+  // Order: captured (webcam/URL), uploaded (file), null
   const previewImageSrc = capturedImage || currentObjectUrl;
   const showWebcam = isWebcamOpen && !capturedImage;
   // Updated condition to check selectedTags array length and animalName
@@ -825,7 +917,7 @@ export default function SakuraPetFramesApp() {
                <span className="animate-text-pop-up-on-hover inline-block">個</span>
                <span className="animate-text-pop-up-on-hover inline-block">風</span>
                <span className="animate-text-pop-up-on-hover inline-block">格</span>
-               <span className="animate-text-pop-up-on-hover inline-block"> = </span> 
+               <span className="animate-text-pop-up-on-hover inline-block"> = </span>
                <span className="animate-text-pop-up-on-hover inline-block">夢</span>
                <span className="animate-text-pop-up-on-hover inline-block">幻</span>
                <span className="animate-text-pop-up-on-hover inline-block">櫻</span>
@@ -840,7 +932,7 @@ export default function SakuraPetFramesApp() {
             <Card className="non-printable">
                <CardHeader>
                   <CardTitle className="text-xl flex items-center gap-2"><ImagePlus size={24} className="text-teal-500" /> 1. 揀相 &amp; 揀 Style</CardTitle>
-                  <CardDescription>上載或者影張靚相，再揀你想要嘅背景主題同風格！</CardDescription>
+                  <CardDescription>上載、影相或用QR Code提供靚相，再揀你想要嘅背景主題同風格！</CardDescription>
                </CardHeader>
                <CardContent className="space-y-4">
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -848,9 +940,10 @@ export default function SakuraPetFramesApp() {
                        <div className="space-y-4">
                            <Label className="font-semibold text-lg text-purple-600">A. 你嘅得意寵物相</Label>
                            <Tabs defaultValue="upload">
-                               <TabsList className="grid w-full grid-cols-2">
-                                   <TabsTrigger value="upload"><Upload className="mr-2 h-4 w-4 inline"/>上載圖片</TabsTrigger>
-                                   <TabsTrigger value="webcam"><Camera className="mr-2 h-4 w-4 inline"/>即時拍攝</TabsTrigger>
+                               <TabsList className="grid w-full grid-cols-3"> {/* Changed to grid-cols-3 */}
+                                   <TabsTrigger value="upload"><Upload className="mr-2 h-4 w-4 inline"/>上載</TabsTrigger>
+                                   <TabsTrigger value="webcam"><Camera className="mr-2 h-4 w-4 inline"/>拍攝</TabsTrigger>
+                                   <TabsTrigger value="qrcode"><QrCode className="mr-2 h-4 w-4 inline"/>QR Code</TabsTrigger> {/* Added QR Code Tab */}
                                </TabsList>
                                <TabsContent value="upload">
                                    <div className="space-y-2 pt-2">
@@ -891,13 +984,47 @@ export default function SakuraPetFramesApp() {
                                        )}
                                    </div>
                                </TabsContent>
+                               <TabsContent value="qrcode"> {/* Added QR Code Content */}
+                                  <div className="space-y-4 pt-4">
+                                     {!animalName && (
+                                         <Alert variant="destructive">
+                                             <AlertTitle>請先輸入寵物名</AlertTitle>
+                                             <AlertDescription>
+                                                 你需要先喺右邊輸入寵物名，先可以生成QR Code嚟上載圖片。
+                                             </AlertDescription>
+                                         </Alert>
+                                     )}
+                                     {animalName && (
+                                         <div className='flex flex-col items-center gap-4'>
+                                             <p className="text-sm text-center text-muted-foreground">用手機掃描 QR Code，上載寵物相片。</p>
+                                             <div className="p-2 bg-white rounded-md inline-block shadow-md">
+                                                <QRCodeCanvas value={qrUploadUrl} size={160} includeMargin={true} />
+                                             </div>
+                                             <p className="text-xs text-center text-muted-foreground">上載完成後，將圖片網址貼喺下面：</p>
+                                              <div className="flex w-full max-w-sm items-center space-x-2">
+                                                 <Input
+                                                     type="url"
+                                                     placeholder="貼上 Google Storage 網址..."
+                                                     value={remoteImageUrlInput}
+                                                     onChange={(e) => setRemoteImageUrlInput(e.target.value)}
+                                                     disabled={isLoadingFromUrl}
+                                                 />
+                                                 <Button type="button" onClick={handleLoadFromUrl} disabled={isLoadingFromUrl || !remoteImageUrlInput}>
+                                                     {isLoadingFromUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4"/>}
+                                                     <span className="ml-1">載入</span>
+                                                 </Button>
+                                             </div>
+                                         </div>
+                                     )}
+                                  </div>
+                               </TabsContent>
                            </Tabs>
                             {previewImageSrc && (
                                <div className="mt-4">
                                    <Label>預覽:</Label>
                                    <img
                                       src={previewImageSrc}
-                                      alt="已上載或拍攝的寵物相"
+                                      alt="已上載、拍攝或載入嘅寵物相"
                                       width={300}
                                       height={225}
                                       className="rounded-md border mt-1 object-cover bg-muted shadow-md"
@@ -907,6 +1034,7 @@ export default function SakuraPetFramesApp() {
                                           toast({ title: "圖片載入錯誤", description: "無法顯示預覽圖片。", variant: "destructive" });
                                           setUiError("無法顯示預覽圖片。");
                                           if (previewImageSrc === currentObjectUrl) setCurrentObjectUrl(null);
+                                          // If it was a captured/URL image, clear that state too
                                           if (previewImageSrc === capturedImage) setCapturedImage(null);
                                        }}
                                    />
@@ -921,11 +1049,12 @@ export default function SakuraPetFramesApp() {
                                <Input
                                    id="animalName"
                                    type="text"
-                                   placeholder="例如: 毛毛, 旺財"
+                                   placeholder="例如: 毛毛, 旺財 (請用英文)"
                                    value={animalName}
                                    onChange={(e) => setAnimalName(e.target.value)}
                                    className="mt-1"
                                />
+                               <p className="text-xs text-muted-foreground mt-1">提示：寵物名會用嚟生成 QR Code 網址。</p>
                            </div>
                            <div>
                               <Label htmlFor="category" className="font-semibold text-lg text-purple-600">C. 背景主題</Label>
@@ -983,7 +1112,7 @@ export default function SakuraPetFramesApp() {
                <CardContent className="flex flex-col items-center space-y-4">
                    <Button
                       onClick={handleGenerateMagic}
-                      disabled={!canGenerate} // Only disable if required fields are missing
+                      disabled={!canGenerate || isGenerating} // Disable when generating too
                       className={`w-full text-xl py-6 font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-teal-500 hover:from-pink-600 hover:via-purple-600 hover:to-teal-600 text-white shadow-lg rounded-full transition duration-300 ease-in-out transform hover:scale-105 active:scale-95 disabled:from-gray-400 disabled:via-gray-500 disabled:to-gray-600 disabled:scale-100 disabled:cursor-not-allowed ${canGenerate ? 'animate-subtle-pulse' : ''}`}
                     >
                       <WandSparkles className="mr-3 h-7 w-7" />
@@ -1041,16 +1170,37 @@ export default function SakuraPetFramesApp() {
                            <Button onClick={handlePrint} variant="secondary">
                              <Printer className="mr-2 h-4 w-4" /> 列印 (4R)
                            </Button>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button variant="outline" disabled>
-                                  <QrCode className="mr-2 h-4 w-4" /> QR Code (停用)
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>圖片檔案太大，無法生成QR Code。請先下載圖片。</p>
-                              </TooltipContent>
-                            </Tooltip>
+                           {/* QR Code Download Dialog Trigger */}
+                           <Dialog>
+                               <DialogTrigger asChild>
+                                   <Button variant="secondary">
+                                       <QrCode className="mr-2 h-4 w-4" /> 手機下載 (QR)
+                                   </Button>
+                               </DialogTrigger>
+                               <DialogContent className="sm:max-w-[300px]">
+                                   <DialogHeader>
+                                       <DialogTitle>掃描 QR Code 下載</DialogTitle>
+                                       <DialogDescription>
+                                           用手機相機掃描下面嘅 QR Code 就可以下載圖片。
+                                       </DialogDescription>
+                                   </DialogHeader>
+                                   {finalFramedImage && finalFramedImage.length < 2953 ? ( // Check if data URL is short enough
+                                       <div className="flex justify-center py-4">
+                                          <QRCodeCanvas value={finalFramedImage} size={256} includeMargin={true} />
+                                       </div>
+                                   ) : (
+                                       <Alert variant="destructive" className="my-4">
+                                           <AlertTitle>QR Code 無法生成</AlertTitle>
+                                           <AlertDescription>圖片檔案太大，無法直接放入QR Code。請使用下載按鈕下載。</AlertDescription>
+                                       </Alert>
+                                   )}
+                                    <DialogFooter>
+                                        <DialogTrigger asChild>
+                                            <Button type="button" variant="outline">關閉</Button>
+                                        </DialogTrigger>
+                                    </DialogFooter>
+                               </DialogContent>
+                           </Dialog>
                           </>
                        )}
                        <Button onClick={handleReset} variant="outline" className="text-red-600 border-red-300 hover:bg-red-50">
