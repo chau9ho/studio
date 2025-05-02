@@ -209,19 +209,32 @@ export async function uploadFramedImageToGcs(dataUrl: string, animalName: string
             resumable: true,
         });
 
-        console.log(`File uploaded successfully to ${filePath}. Making public...`);
+        console.log(`File uploaded successfully to ${filePath}.`);
 
-        // Make the file publicly readable
-        await file.makePublic();
+         // Attempt to make the file publicly readable in a separate try...catch
+         try {
+             console.log(`Making ${filePath} public...`);
+             await file.makePublic();
+             console.log(`File is now public at ${filePath}`);
+         } catch (publicError: any) {
+             // Log the error but *don't* re-throw. The core upload succeeded
+             console.error(`Error making file public (${filePath}):`, publicError);
+             console.warn("Could not make the uploaded image public, but the upload itself succeeded.");
+             // Depending on the app's needs, you might want to:
+             // - Add metadata to the object indicating it needs to be made public later.
+             // - Trigger a background task to retry making it public.
+             // For this app, we'll proceed and return the URL, assuming public access isn't strictly required immediately
+             // or can be handled manually if needed.
+         }
 
         const publicUrl = `https://storage.googleapis.com/${BUCKET_NAME}/${filePath}`;
-        console.log(`File is now public at: ${publicUrl}`);
+        console.log(`File available at: ${publicUrl}`);
 
         return publicUrl;
 
     } catch (error: any) {
         console.error(`Error uploading file to GCS path '${filePath}':`, error);
-         // Check for specific permission errors
+         // Check for specific permission errors related to the *upload* itself
         if (error.code === 403) {
              console.error("Permission denied writing to GCS bucket/path. Ensure the service account has 'roles/storage.objectCreator' or 'roles/storage.objectAdmin'.");
              throw new Error("Permission denied uploading image to Google Cloud Storage. Check server configuration.");
@@ -230,6 +243,8 @@ export async function uploadFramedImageToGcs(dataUrl: string, animalName: string
              console.error("Authentication error: Could not refresh access token during upload. Verify GOOGLE_APPLICATION_CREDENTIALS or ADC setup.");
             throw new Error("Authentication error uploading to Google Cloud Storage. Please check server credentials setup.");
          }
+         // Throw for other upload-related errors
         throw new Error(`Failed to upload image to Google Cloud Storage: ${error.message || 'Unknown GCS error'}`);
     }
 }
+
