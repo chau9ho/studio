@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox"; // Import Checkbox
-import { ScrollArea } from "@/components/ui/scroll-area"; // Import ScrollArea
-import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X } from 'lucide-react';
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X, ImagePlus, Palette, Sparkles, PartyPopper, FileImage, PencilRuler } from 'lucide-react'; // Added icons
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import FallingSakura from '@/components/animations/FallingSakura'; // Import the new component
 
 // AI flow imports
 import { generateSakuraPrompt } from '@/ai/flows/generate-sakura-prompt';
@@ -219,15 +220,17 @@ export default function SakuraPetFramesApp() {
 
 
   const captureImage = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const context = canvas.getContext('2d');
+    if (videoRef.current) {
+       // Create a temporary canvas in memory for resizing
+       const tempCanvas = document.createElement('canvas');
+       const video = videoRef.current;
+       tempCanvas.width = video.videoWidth;
+       tempCanvas.height = video.videoHeight;
+       const context = tempCanvas.getContext('2d');
+
       if (context) {
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/png');
+        context.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+        const dataUrl = tempCanvas.toDataURL('image/png');
         clearAllStates();
         setCapturedImage(dataUrl);
         stopWebcam();
@@ -476,7 +479,7 @@ export default function SakuraPetFramesApp() {
         } catch (error: any) {
              console.error("Error processing image with ClipDrop:", error);
              // Provide specific user-friendly message for ClipDrop errors
-             // setUiError("唔好意思, 背景替換出咗問題, 請一陣再試啦。");
+             // Set specific UI error for ClipDrop failures
              setUiError("唔好意思, 背景替換出錯，請稍後再試。"); // Adjusted message
              throw new Error(`ClipDrop processing failed: ${error.message || error}`); // Throw to stop process
         }
@@ -498,22 +501,25 @@ export default function SakuraPetFramesApp() {
         console.error("Error during generation process:", error);
         // Use the specific UI error if set, otherwise use the caught error message
         const displayError = uiError || error.message || "An unknown error occurred.";
-        if (!uiError) { // Only set UI error if not already set (e.g., by ClipDrop specific handler or AI errors)
+        // Set a general error message if no specific one was set (e.g., by ClipDrop handler)
+        if (!uiError) {
             setUiError(`唔好意思, 出咗啲問題: ${displayError}. 請一陣再試啦。`);
         }
-         // Show the specific Clipdrop error if it was the cause
+
+         // Update progress text based on error type
          if (error.message.includes("ClipDrop")) {
              setProgressText('背景替換失敗...😢');
-             setUiError("唔好意思, 背景替換出錯，請稍後再試。");
+             // uiError is already set in the ClipDrop catch block
          } else if (error.message.includes("AI")) {
              setProgressText('AI 諗嘢失敗...🤯');
-             setUiError(`唔好意思, AI 出錯: ${error.message}. 請檢查設定或稍後再試。`);
+              setUiError(`唔好意思, AI 出錯: ${error.message}. 請檢查設定或稍後再試。`); // Ensure AI error message is shown
          }
          else {
              setProgressText('魔法失敗咗...😢'); // General failure
-             setUiError(`唔好意思, 出咗啲問題: ${displayError}. 請稍後再試。`);
+              // Use the already set or default error message
+             setUiError(uiError || `唔好意思, 出咗啲問題: ${displayError}. 請稍後再試。`);
          }
-        toast({ title: "變身失敗", description: uiError, variant: "destructive" });
+        toast({ title: "變身失敗", description: uiError, variant: "destructive" }); // Use the final uiError value
     } finally {
         setIsGenerating(false);
         // Don't reset progress to 0 immediately, let the user see it completed or failed at 100%
@@ -616,15 +622,6 @@ export default function SakuraPetFramesApp() {
 
             try {
                  // Draw the SCALED and CENTERED processed image ON TOP of the frame
-                  // Note: This draws the entire scaled image, potentially overlapping the frame borders if scaled larger than target.
-                  // If you need to clip the image to the target bounds exactly:
-                  // ctx.save();
-                  // ctx.rect(targetX, targetY, targetWidth, targetHeight);
-                  // ctx.clip();
-                  // ctx.drawImage(processedImg, drawX, drawY, drawWidth, drawHeight);
-                  // ctx.restore();
-                  // However, the current approach assumes the frame design allows overlap or the scaling fits.
-
                  ctx.drawImage(processedImg, drawX, drawY, drawWidth, drawHeight);
                  console.log("Processed image drawn onto canvas over the frame.");
 
@@ -697,14 +694,15 @@ export default function SakuraPetFramesApp() {
   const canGenerate = !!(uploadedImage || capturedImage) && !!selectedCategory && selectedTags.length > 0 && !!apiKeys.clipdropKey && !!animalName;
 
   return (
-    <div className="container mx-auto p-4 max-w-4xl">
-      <Card className="w-full shadow-lg overflow-hidden"> {/* Added overflow hidden */}
+    <div className="container mx-auto p-4 max-w-4xl relative"> {/* Added relative positioning */}
+      <FallingSakura /> {/* Add the falling sakura component */}
+      <Card className="w-full shadow-lg overflow-hidden relative z-10"> {/* Ensure card is above sakura */}
         <CardHeader>
-          <CardTitle className="text-3xl font-bold text-center text-primary flex items-center justify-center gap-2">
-            🌸 Montara 櫻花寵物魔法相框 🌸
+          <CardTitle className="text-3xl font-bold text-center text-pink-500 flex items-center justify-center gap-2">
+            🌸 櫻花寵物魔法變身器 🌸
           </CardTitle>
           <CardDescription className="text-center">
-             上傳寵物相片，揀個靚景，即刻變身櫻花主題靚相！仲有得意故仔睇！
+             揀張寵物相 + 揀個風格 = 獨一無二嘅櫻花魔法相！
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -712,8 +710,8 @@ export default function SakuraPetFramesApp() {
           {/* Simplified Combined Input Section */}
           <Card>
              <CardHeader>
-                <CardTitle className="text-xl">1. 準備材料 🐾</CardTitle>
-                <CardDescription>上載/影相，再揀個靚靚背景風格</CardDescription>
+                <CardTitle className="text-xl flex items-center gap-2"><ImagePlus size={24} /> 1. 揀選寵物靚相 &amp; 風格</CardTitle>
+                <CardDescription>上載/影相，再揀個主題同風格！</CardDescription>
              </CardHeader>
              <CardContent className="space-y-4">
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -727,7 +725,7 @@ export default function SakuraPetFramesApp() {
                              </TabsList>
                              <TabsContent value="upload">
                                  <div className="space-y-2 pt-2">
-                                    <Label htmlFor="picture" className="text-sm text-muted-foreground">揀選相片檔案 (建議 2000x2000px 以下)</Label>
+                                    <Label htmlFor="picture" className="text-sm text-muted-foreground">揀選相片檔案 (太大會自動縮細)</Label>
                                     <Input id="picture" type="file" accept="image/*" onChange={handleImageUpload} disabled={isGenerating} />
                                  </div>
                              </TabsContent>
@@ -763,8 +761,6 @@ export default function SakuraPetFramesApp() {
                                      {hasCameraPermission === null && isWebcamOpen && ( // Show loading only when webcam is open and permission pending
                                          <p className="text-sm text-muted-foreground">要求鏡頭權限中...</p>
                                      )}
-                                    {/* Canvas for webcam capture - always hidden */}
-                                    <canvas ref={canvasRef} className="hidden"></canvas>
                                  </div>
                              </TabsContent>
                          </Tabs>
@@ -815,7 +811,7 @@ export default function SakuraPetFramesApp() {
                                 disabled={isGenerating}
                             >
                                 <SelectTrigger id="category" className="mt-1">
-                                <SelectValue placeholder="選擇一個主題" />
+                                <SelectValue placeholder="揀一個大主題..." />
                                 </SelectTrigger>
                                 <SelectContent>
                                 {Object.keys(categories).map((cat) => (
@@ -863,10 +859,8 @@ export default function SakuraPetFramesApp() {
                               <Alert variant="destructive">
                                   <AlertTitle>缺少 ClipDrop Key</AlertTitle>
                                   <AlertDescription>
-                                      需要 ClipDrop API Key 才能換背景。你可以在 <a href="https://clipdrop.co/apis" target="_blank" rel="noopener noreferrer" className="underline">ClipDrop 網站</a> 申請。
+                                      要換背景需要 ClipDrop API Key！ <a href="https://clipdrop.co/apis" target="_blank" rel="noopener noreferrer" className="underline">去申請</a>
                                       {/* Optionally add input back if needed */}
-                                      {/* <Input type="password" placeholder="貼上你的 ClipDrop Key" onChange={(e) => setApiKeys(prev => ({ ...prev, clipdropKey: e.target.value }))} className="mt-2"/>
-                                      <Button onClick={handleSaveKeys} size="sm" className="mt-2">儲存 Key</Button> */}
                                   </AlertDescription>
                               </Alert>
                           )}
@@ -879,14 +873,14 @@ export default function SakuraPetFramesApp() {
           {/* Step 2: Generate */}
           <Card>
              <CardHeader>
-                <CardTitle className="text-xl">2. 施展魔法 ✨</CardTitle>
+                <CardTitle className="text-xl flex items-center gap-2"><Sparkles size={24} /> 2. 施展魔法 ✨</CardTitle>
                 <CardDescription>撳個掣，等陣就有靚相睇！</CardDescription>
              </CardHeader>
              <CardContent className="space-y-4">
                  <Button
                     onClick={handleGenerateMagic}
                     disabled={!canGenerate || isGenerating}
-                    className="w-full text-lg py-6 bg-gradient-to-r from-pink-500 via-purple-500 to-teal-500 hover:from-pink-600 hover:via-purple-600 hover:to-teal-600 text-white shadow-lg transition duration-300 ease-in-out transform hover:scale-105 active:scale-95 disabled:from-pink-300 disabled:via-purple-300 disabled:to-teal-300 disabled:scale-100 disabled:cursor-not-allowed"
+                    className={`w-full text-lg py-6 bg-gradient-to-r from-pink-400 via-purple-400 to-teal-400 hover:from-pink-500 hover:via-purple-500 hover:to-teal-500 text-white shadow-lg transition duration-300 ease-in-out transform hover:scale-105 active:scale-95 disabled:from-pink-200 disabled:via-purple-200 disabled:to-teal-200 disabled:scale-100 disabled:cursor-not-allowed ${!isGenerating && canGenerate ? 'animate-subtle-pulse' : ''}`} // Added pulse animation when ready
                   >
                     {isGenerating ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <WandSparkles className="mr-2 h-6 w-6" />}
                     {isGenerating ? '魔法變身中...' : '開始變身！'}
@@ -940,12 +934,13 @@ export default function SakuraPetFramesApp() {
            {(finalFramedImage || generatedStory) && !isGenerating && progress === 100 && (
              <Card>
                  <CardHeader>
-                    <CardTitle className="text-xl">3. 🎉 魔法相框完成 🎉</CardTitle>
+                    <CardTitle className="text-xl flex items-center gap-2"><PartyPopper size={24} /> 3. 魔法相框完成 🎉</CardTitle>
                     <CardDescription>睇下你嘅大作！</CardDescription>
                  </CardHeader>
                  <CardContent className="flex flex-col items-center space-y-4">
                     {finalFramedImage && (
                         <div className="w-full max-w-[400px] md:max-w-[500px] mx-auto"> {/* Constrain image width */}
+                             <Label className="text-lg font-semibold text-center block mb-2">🖼️ 你的專屬相框:</Label>
                             <img
                                 src={finalFramedImage}
                                 alt={`Framed photo of ${animalName}`}
@@ -963,9 +958,9 @@ export default function SakuraPetFramesApp() {
                          </div>
                     )}
                      {generatedStory && (
-                        <div className="w-full p-4 bg-primary/10 rounded-md border border-primary/30 mt-4">
-                             <Label className="text-lg font-semibold text-primary/90">📖 寵物小故事:</Label>
-                             <p className="text-sm mt-2 whitespace-pre-wrap text-foreground/80">{generatedStory}</p>
+                        <div className="w-full p-4 bg-pink-50 rounded-md border border-pink-200 mt-4"> {/* Adjusted story background */}
+                             <Label className="text-lg font-semibold text-pink-700 flex items-center gap-2">📖 寵物小故事:</Label>
+                             <p className="text-sm mt-2 whitespace-pre-wrap text-gray-700">{generatedStory}</p>
                          </div>
                       )}
                  </CardContent>
@@ -985,10 +980,12 @@ export default function SakuraPetFramesApp() {
 
          {/* Hidden canvas for final image composition */}
          <canvas ref={finalCanvasRef} className="hidden"></canvas>
+          {/* Hidden canvas for webcam capture/resize */}
+         <canvas ref={canvasRef} className="hidden"></canvas>
 
         </CardContent>
          <CardFooter className="text-center text-xs text-muted-foreground justify-center">
-             Powered by ClipDrop & Google AI. Frame Design inspired by Montara.
+             Powered by ClipDrop & Google AI. Inspired by Montara. ✨
          </CardFooter>
       </Card>
     </div>
