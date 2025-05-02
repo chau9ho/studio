@@ -1,4 +1,5 @@
-{"use client";
+
+'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -125,7 +126,7 @@ export default function SakuraPetFramesApp() {
         console.log("Frame image loaded successfully from /public/frame.png");
     };
     frameImg.onerror = (e) => { // Use 'e' for the event object
-        console.error("Failed to load frame image from /frame.png.", e);
+        console.error("Failed to load frame image from /public/frame.png.", e);
         // Check if toast function exists before calling
         if (toast) {
           toast({ title: "Error", description: "Failed to load the frame image from /public/frame.png. Please ensure it exists.", variant: "destructive" });
