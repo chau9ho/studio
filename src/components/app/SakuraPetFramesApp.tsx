@@ -39,9 +39,13 @@ const categories: Record<Category, string[]> = {
   抽象主題: ['蒸氣龐克', '霓虹夜光', '夢幻光影'],
 };
 
-const FRAME_WIDTH = 1410;
-const FRAME_HEIGHT = 2250;
-const IMAGE_START_Y = 300; // Y position where the pet image content starts
+// Frame and Content Constants based on user request
+const FRAME_WIDTH = 1410; // Width of the frame.png
+const FRAME_HEIGHT = 2250; // Height of the frame.png
+const TARGET_CONTENT_WIDTH = 1441; // Max width constraint for the pet photo
+const TARGET_CONTENT_HEIGHT = 1369; // Max height constraint for the pet photo
+const TARGET_CONTENT_START_Y = 610; // Y position where the pet image content should start
+
 
 export default function SakuraPetFramesApp() {
   const { toast } = useToast();
@@ -109,11 +113,11 @@ export default function SakuraPetFramesApp() {
         frameImageRef.current = frameImg;
         console.log("Frame image loaded");
     };
-    frameImg.onerror = () => {
-        console.error("Failed to load frame image.");
+    frameImg.onerror = (e) => {
+        console.error("Failed to load frame image from /frame.png.", e);
         // Ensure toast is available before calling
         if (toast) {
-          toast({ title: "Error", description: "Failed to load the frame image from /public/frame.png", variant: "destructive" });
+          toast({ title: "Error", description: "Failed to load the frame image from /public/frame.png. Please ensure it exists.", variant: "destructive" });
         }
     };
   }, [toast]); // Add toast to dependency array if used inside
@@ -148,6 +152,11 @@ export default function SakuraPetFramesApp() {
     if (event.target.files && event.target.files[0]) {
        clearPreviousImageState();
        const file = event.target.files[0];
+       // Basic validation for image type
+        if (!file.type.startsWith('image/')) {
+            toast({ title: "Invalid File", description: "Please upload a valid image file.", variant: "destructive" });
+            return;
+        }
        setUploadedImage(file);
        const objectUrl = URL.createObjectURL(file);
        setCurrentObjectUrl(objectUrl);
@@ -268,11 +277,8 @@ export default function SakuraPetFramesApp() {
        toast({ title: "Prompt Generated", description: "Sakura background prompt created." });
     } catch (error: any) {
       console.error("Error generating prompt:", error);
-      // Provide clearer error message if AI model is not configured or key is missing
-      const errorMessage = error.message && (error.message.includes("AI model is not configured") || error.message.includes("API key not valid"))
-        ? "AI model is unavailable or configured incorrectly. Please check your GOOGLE_GENAI_API_KEY and ensure it's valid and the model is available."
-        : `Failed to generate background prompt: ${error.message || 'Unknown AI error'}`;
-      toast({ title: "Generation Error", description: errorMessage, variant: "destructive" });
+      const errorMessage = error.message || 'Unknown AI error';
+      toast({ title: "Generation Error", description: `Failed to generate background prompt: ${errorMessage}`, variant: "destructive" });
     } finally {
       setIsLoading(prev => ({ ...prev, prompt: false }));
     }
@@ -301,11 +307,8 @@ export default function SakuraPetFramesApp() {
        toast({ title: "Animal Analyzed", description: "Animal features identified." });
     } catch (error: any) {
       console.error("Error analyzing animal:", error);
-       // Provide clearer error message if AI model is not configured or key is missing
-       const errorMessage = error.message && (error.message.includes("AI model is not configured") || error.message.includes("API key not valid"))
-          ? "AI model is unavailable or configured incorrectly. Please check your GOOGLE_GENAI_API_KEY and ensure it's valid and the model is available."
-          : `Failed to analyze animal features: ${error.message || 'Unknown AI error'}`;
-      toast({ title: "Analysis Error", description: errorMessage, variant: "destructive" });
+       const errorMessage = error.message || 'Unknown AI error';
+      toast({ title: "Analysis Error", description: `Failed to analyze animal features: ${errorMessage}`, variant: "destructive" });
     } finally {
       setIsLoading(prev => ({ ...prev, vision: false }));
     }
@@ -330,11 +333,8 @@ export default function SakuraPetFramesApp() {
        toast({ title: "Story Generated", description: "Cantonese story created." });
     } catch (error: any) {
       console.error("Error generating story:", error);
-      // Provide clearer error message if AI model is not configured or key is missing
-      const errorMessage = error.message && (error.message.includes("AI model is not configured") || error.message.includes("API key not valid"))
-          ? "AI model is unavailable or configured incorrectly. Please check your GOOGLE_GENAI_API_KEY and ensure it's valid and the model is available."
-          : `Failed to generate Cantonese story: ${error.message || 'Unknown AI error'}`;
-      toast({ title: "Generation Error", description: errorMessage, variant: "destructive" });
+      const errorMessage = error.message || 'Unknown AI error';
+      toast({ title: "Generation Error", description: `Failed to generate Cantonese story: ${errorMessage}`, variant: "destructive" });
     } finally {
       setIsLoading(prev => ({ ...prev, story: false }));
     }
@@ -367,11 +367,14 @@ export default function SakuraPetFramesApp() {
      setFinalFramedImage(null);
 
      try {
+         console.log("Sending to ClipDrop:", { prompt: generatedPrompt });
          const response = await replaceBackground(imageBlob, generatedPrompt, apiKeys.clipdropKey);
+         console.log("Received from ClipDrop:", response);
          if (!response || !response.image) throw new Error("Invalid response from ClipDrop");
 
          // Convert the received Blob to a Base64 Data URL for display and framing
          const base64Image = await blobToDataUrl(response.image);
+         console.log("Converted ClipDrop Blob to Data URL");
          setProcessedImage(base64Image); // Set the processed image state
          toast({ title: "Background Replaced", description: "ClipDrop processing complete." });
 
@@ -389,65 +392,92 @@ export default function SakuraPetFramesApp() {
 
   const frameImage = (processedImageSrc: string) => {
      return new Promise<void>((resolve, reject) => {
-        if (!finalCanvasRef.current || !frameImageRef.current) {
-            toast({ title: "Framing Error", description: "Canvas or frame image not ready.", variant: "destructive" });
+        console.log("Starting image framing process...");
+        if (!finalCanvasRef.current) {
+             console.error("Final canvas ref is not available.");
+             toast({ title: "Framing Error", description: "Canvas not ready for framing.", variant: "destructive" });
              setIsLoading(prev => ({ ...prev, framing: false }));
-            reject(new Error("Canvas or frame not ready"));
-            return;
-        }
+             reject(new Error("Canvas not ready"));
+             return;
+         }
+        if (!frameImageRef.current || !frameImageRef.current.complete || frameImageRef.current.naturalWidth === 0) {
+             console.error("Frame image ref is not available, not loaded, or has zero dimensions.");
+             toast({ title: "Framing Error", description: "Frame image not loaded or invalid. Check console.", variant: "destructive" });
+             setIsLoading(prev => ({ ...prev, framing: false }));
+             reject(new Error("Frame image not ready"));
+             return;
+         }
+
 
         const canvas = finalCanvasRef.current;
         const ctx = canvas.getContext('2d');
         const frameImg = frameImageRef.current;
 
         if (!ctx) {
+             console.error("Could not get 2D context from final canvas.");
              toast({ title: "Framing Error", description: "Could not get canvas context.", variant: "destructive" });
              setIsLoading(prev => ({ ...prev, framing: false }));
              reject(new Error("Could not get canvas context"));
              return;
         }
 
+        // Set canvas dimensions to the frame dimensions
         canvas.width = FRAME_WIDTH;
         canvas.height = FRAME_HEIGHT;
+        console.log(`Canvas dimensions set to ${FRAME_WIDTH}x${FRAME_HEIGHT}`);
 
-        // Draw the white background first (optional, if frame is opaque)
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Draw the white background (optional, useful for transparent frames or images)
+        // ctx.fillStyle = 'white';
+        // ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Draw the frame image first
-        ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+        // Draw the frame image first, covering the entire canvas
+         try {
+             ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+             console.log("Frame image drawn onto canvas.");
+         } catch (drawError) {
+              console.error("Error drawing frame image onto canvas:", drawError);
+              toast({ title: "Framing Error", description: "Could not draw the frame image.", variant: "destructive" });
+              setIsLoading(prev => ({ ...prev, framing: false }));
+              reject(new Error("Failed to draw frame image on canvas"));
+              return;
+         }
+
 
         // Now load and draw the processed pet image on top
+        console.log("Loading processed image for drawing...");
         const processedImg = new window.Image();
         processedImg.onload = () => {
-            // Calculate the area where the pet image should go
-            const contentWidth = canvas.width; // Assume content width matches frame width
-            const contentHeight = canvas.height - IMAGE_START_Y; // Height of the content area
-            const imgAspectRatio = processedImg.naturalWidth / processedImg.naturalHeight;
-            const contentAspectRatio = contentWidth / contentHeight;
+             console.log(`Processed image loaded: ${processedImg.naturalWidth}x${processedImg.naturalHeight}`);
+            // Calculate the target area for the pet image
+            const targetWidth = TARGET_CONTENT_WIDTH;
+            const targetHeight = TARGET_CONTENT_HEIGHT;
+            const targetX = (FRAME_WIDTH - targetWidth) / 2; // Center horizontally within the frame
+            const targetY = TARGET_CONTENT_START_Y;
 
-            let drawWidth, drawHeight, drawX, drawY;
+            // Calculate scaling factor to fit within target area while maintaining aspect ratio
+            const scaleX = targetWidth / processedImg.naturalWidth;
+            const scaleY = targetHeight / processedImg.naturalHeight;
+            const scale = Math.min(scaleX, scaleY); // Use the smaller scale factor to fit entirely
 
-            // Fit the image within the content area, maintaining aspect ratio
-            if (imgAspectRatio > contentAspectRatio) { // Image is wider than content area
-                drawWidth = contentWidth;
-                drawHeight = drawWidth / imgAspectRatio;
-                 drawX = 0; // Centered horizontally (or start at 0 if full width)
-                 drawY = IMAGE_START_Y + (contentHeight - drawHeight) / 2; // Centered vertically within content area
-            } else { // Image is taller than content area or same aspect ratio
-                drawHeight = contentHeight;
-                drawWidth = drawHeight * imgAspectRatio;
-                drawX = (contentWidth - drawWidth) / 2; // Centered horizontally
-                drawY = IMAGE_START_Y; // Start at the top of the content area
-            }
+            const drawWidth = processedImg.naturalWidth * scale;
+            const drawHeight = processedImg.naturalHeight * scale;
+
+            // Calculate position to center the scaled image within the target area
+            const drawX = targetX + (targetWidth - drawWidth) / 2;
+            const drawY = targetY + (targetHeight - drawHeight) / 2;
+
+            console.log(`Calculated draw dimensions: ${drawWidth}x${drawHeight}`);
+            console.log(`Calculated draw position: X=${drawX}, Y=${drawY}`);
 
             try {
-                 // Draw the processed image within the calculated bounds
+                 // Draw the scaled and positioned processed image
                  ctx.drawImage(processedImg, drawX, drawY, drawWidth, drawHeight);
+                 console.log("Processed image drawn onto canvas.");
 
                  // Frame is already drawn underneath
 
                  const finalDataUrl = canvas.toDataURL('image/png');
+                 console.log("Final image generated as Data URL.");
                   setFinalFramedImage(finalDataUrl);
                   toast({ title: "Image Framed", description: "Your Sakura Pet Frame is ready!" });
                   setIsLoading(prev => ({ ...prev, clipdrop: false, framing: false })); // Stop both loadings
@@ -459,15 +489,18 @@ export default function SakuraPetFramesApp() {
                  reject(new Error("Failed to draw processed image on canvas"));
             }
         };
-        processedImg.onerror = () => {
+        processedImg.onerror = (e) => {
+            console.error("Failed to load processed image for framing:", e);
             toast({ title: "Framing Error", description: "Failed to load processed image for framing.", variant: "destructive" });
             setIsLoading(prev => ({ ...prev, clipdrop: false, framing: false })); // Stop both loadings
             reject(new Error("Failed to load processed image"));
         };
         // Ensure the src is valid before assigning
         if (processedImageSrc && typeof processedImageSrc === 'string' && processedImageSrc.startsWith('data:image')) {
+            console.log("Assigning processed image source to Image object.");
             processedImg.src = processedImageSrc;
         } else {
+             console.error("Invalid processed image source provided for framing:", processedImageSrc);
              toast({ title: "Framing Error", description: "Invalid processed image source for framing.", variant: "destructive" });
              setIsLoading(prev => ({ ...prev, clipdrop: false, framing: false }));
              reject(new Error("Invalid processed image source"));
@@ -576,7 +609,7 @@ export default function SakuraPetFramesApp() {
                                 </Button>
                              )}
                              {/* Always render video tag to avoid race conditions */}
-                              <div className={`relative aspect-video bg-muted rounded-md overflow-hidden ${!showWebcam && 'hidden'}`}>
+                              <div className={`relative aspect-video bg-muted rounded-md overflow-hidden ${!showWebcam ? 'hidden' : ''}`}>
                                   <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
                                    {isWebcamOpen && (
                                         <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-2">
@@ -601,7 +634,7 @@ export default function SakuraPetFramesApp() {
                                 </Alert>
                              )}
                              {hasCameraPermission === null && isWebcamOpen && ( // Show only if webcam button was clicked
-                                 <p className="text-sm text-muted-foreground">Checking camera permissions...</p>
+                                 <p className="text-sm text-muted-foreground">Requesting camera permission...</p>
                              )}
 
                             <canvas ref={canvasRef} className="hidden"></canvas> {/* Hidden canvas for capture */}
@@ -618,7 +651,7 @@ export default function SakuraPetFramesApp() {
                             alt="Uploaded or Captured Pet"
                             width={300}
                             height={225}
-                            className="rounded-md border mt-1 object-cover"
+                            className="rounded-md border mt-1 object-cover bg-muted" // Added bg-muted for loading/error state
                             data-ai-hint="pet animal"
                             // Add error handling for the image itself
                              onError={(e) => {
@@ -737,9 +770,9 @@ export default function SakuraPetFramesApp() {
                         <img
                             src={finalFramedImage}
                             alt={`Framed photo of ${animalName}`}
-                            width={FRAME_WIDTH / 3} // Scale down for display
-                            height={FRAME_HEIGHT / 3}
-                            className="rounded-md border shadow-md object-contain" // Use object-contain
+                            // Display scaled down version while maintaining aspect ratio
+                            style={{ maxWidth: '100%', height: 'auto', maxHeight: '70vh' }} // Control display size
+                            className="rounded-md border shadow-md object-contain bg-muted" // Added bg-muted for loading/error state
                              onError={(e) => {
                                 console.error("Error loading final framed image:", e);
                                 toast({ title: "Image Load Error", description: "Could not display the final framed image.", variant: "destructive" });
@@ -767,5 +800,3 @@ export default function SakuraPetFramesApp() {
     </div>
   );
 }
-
-    
