@@ -10,6 +10,7 @@
 
  import {ai} from '@/ai/ai-instance';
  import {z} from 'genkit';
+ import { GenkitError } from 'genkit'; // Corrected import path
 
  const GenerateCantoneseStoryInputSchema = z.object({
    animalName: z.string().describe('The name of the animal.'),
@@ -30,17 +31,33 @@
  export async function generateCantoneseStory(
    input: GenerateCantoneseStoryInput
  ): Promise<GenerateCantoneseStoryOutput> {
-    // Check if a model is configured before proceeding
-    if (!ai.model) {
-        console.warn("Attempted to call generateCantoneseStoryFlow without a configured AI model. Check API key setup.");
-        // Throw a specific error to signal failure clearly
-        throw new Error("AI model is not configured. Please check your Google AI API key settings in the application.");
+    // Implicit check via ai.generate in the flow
+    try {
+         // Ensure a model is available before attempting the flow.
+        if (!ai.listModels().find(m => m.startsWith('googleai/'))) { // Check if any Google AI model is configured
+             throw new Error("AI model (Google AI) is not configured. Please ensure the GOOGLE_GENAI_API_KEY is correctly set in your environment variables.");
+        }
+       return await generateCantoneseStoryFlow(input);
+    } catch (error: any) {
+        // Catch errors from the flow execution, including initialization issues
+        console.error("Error executing generateCantoneseStoryFlow:", error);
+
+        // Check if the error indicates an unconfigured model or API issue
+         if (error instanceof GenkitError && (error.status === 'UNAVAILABLE' || error.status === 'INVALID_ARGUMENT')) {
+             // Provide a user-friendly message for common configuration/API key issues
+             throw new Error("AI model is unavailable or configured incorrectly. Please check your GOOGLE_GENAI_API_KEY and ensure it's valid.");
+        } else if (error.message && error.message.includes("AI model is not configured")) {
+             // Catch the specific error thrown above if still relevant
+            throw new Error(error.message);
+        }
+        // Re-throw other errors
+        throw new Error(`Failed to generate story: ${error.message || 'Unknown AI error'}`);
     }
-   return generateCantoneseStoryFlow(input);
  }
 
  const prompt = ai.definePrompt({
    name: 'generateCantoneseStoryPrompt',
+    model: 'googleai/gemini-2.0-flash', // Specify the model for this prompt
    input: {
      schema: z.object({
        animalName: z.string().describe('The name of the animal.'),
@@ -72,19 +89,12 @@
      outputSchema: GenerateCantoneseStoryOutputSchema,
    },
    async input => {
-      try {
-        // The check in the wrapper function should prevent this call if no model exists
-         const {output} = await prompt(input); // Uses default model from ai-instance
-         // Ensure output is not null or undefined before returning
-         if (!output) {
-             throw new Error("Failed to generate story: No output from prompt.");
-         }
-         return output;
-      } catch (error: any) {
-            // Catch potential errors during the prompt call (e.g., API issues)
-            console.error("Error during prompt execution in generateCantoneseStoryFlow:", error);
-            // Re-throw or handle as appropriate
-            throw new Error(`Failed to generate story: ${error.message || 'Unknown AI error'}`);
+      // No try-catch needed here for the prompt call itself if errors are handled in the wrapper
+      const {output} = await prompt(input); // Call the specific prompt
+      // Ensure output is not null or undefined before returning
+      if (!output) {
+          throw new Error("Failed to generate story: No output from prompt.");
       }
+      return output;
    }
  );

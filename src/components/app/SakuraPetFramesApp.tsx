@@ -23,9 +23,8 @@ import { generateCantoneseStory } from '@/ai/flows/generate-cantonese-story';
 // ClipDrop service and helpers
 import { replaceBackground, dataUrlToBlob, blobToDataUrl } from '@/services/clipdrop';
 
-// Types
+// Types - Removed openaiKey from ApiKeys
 type ApiKeys = {
-  openaiKey: string;
   clipdropKey: string;
 };
 
@@ -46,7 +45,8 @@ const IMAGE_START_Y = 300; // H 300
 
 export default function SakuraPetFramesApp() {
   const { toast } = useToast();
-  const [apiKeys, setApiKeys] = useState<ApiKeys>({ openaiKey: '', clipdropKey: '' });
+  // Removed openaiKey state
+  const [apiKeys, setApiKeys] = useState<ApiKeys>({ clipdropKey: '' });
   const [animalName, setAnimalName] = useState<string>('');
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null); // Base64 Data URL
@@ -94,7 +94,7 @@ export default function SakuraPetFramesApp() {
       try {
         const parsedKeys = JSON.parse(storedKeys);
         setApiKeys({
-          openaiKey: parsedKeys.openaiKey || '',
+          // Removed openaiKey loading
           clipdropKey: parsedKeys.clipdropKey || '',
         });
         setAnimalName(parsedKeys.animalName || '');
@@ -120,11 +120,12 @@ export default function SakuraPetFramesApp() {
   // Save API keys and animal name to localStorage
   const handleSaveKeys = () => {
     try {
-      const dataToStore = JSON.stringify({ ...apiKeys, animalName });
+      // Removed openaiKey saving
+      const dataToStore = JSON.stringify({ clipdropKey: apiKeys.clipdropKey, animalName });
       localStorage.setItem('sakuraPetFramesKeys', dataToStore);
-      toast({ title: "Settings Saved", description: "API keys and animal name saved successfully." });
+      toast({ title: "Settings Saved", description: "ClipDrop API key and animal name saved successfully." });
     } catch (error) {
-      console.error("Failed to save API keys:", error);
+      console.error("Failed to save settings:", error);
       toast({ title: "Error", description: "Could not save settings.", variant: "destructive" });
     }
   };
@@ -257,18 +258,8 @@ export default function SakuraPetFramesApp() {
       toast({ title: "Missing Selection", description: "Please select a category and tag.", variant: "destructive" });
       return;
     }
-     if (!apiKeys.openaiKey) {
-       toast({ title: "API Key Missing", description: "Please enter and save your OpenAI API key.", variant: "destructive" });
-       return;
-     }
-      // Use placeholder if key is 'DISABLED' for testing
-    if (apiKeys.openaiKey === 'DISABLED') {
-      const fakePrompt = `A ${selectedTag} landscape under a vibrant sky, with ${selectedCategory.toLowerCase()} elements and blooming sakura trees casting soft pink light.`;
-      setGeneratedPrompt(fakePrompt);
-      toast({ title: "Using Fake Prompt", description: "Genkit is disabled, using a placeholder prompt." });
-      return;
-    }
-
+     // Removed check for openaiKey from state
+     // The check is now implicit in the flow's execution (will throw if GOOGLE_GENAI_API_KEY is missing)
 
     setIsLoading(prev => ({ ...prev, prompt: true }));
     setGeneratedPrompt('');
@@ -279,7 +270,11 @@ export default function SakuraPetFramesApp() {
        toast({ title: "Prompt Generated", description: "Sakura background prompt created." });
     } catch (error: any) {
       console.error("Error generating prompt:", error);
-      toast({ title: "Generation Error", description: `Failed to generate background prompt: ${error.message || error}`, variant: "destructive" });
+      // Provide clearer error message if AI model is not configured
+      const errorMessage = error.message && error.message.includes("AI model is not configured")
+        ? "AI model is not configured. Please ensure the GOOGLE_GENAI_API_KEY is correctly set in your environment variables."
+        : `Failed to generate background prompt: ${error.message || error}`;
+      toast({ title: "Generation Error", description: errorMessage, variant: "destructive" });
     } finally {
       setIsLoading(prev => ({ ...prev, prompt: false }));
     }
@@ -298,17 +293,7 @@ export default function SakuraPetFramesApp() {
       toast({ title: "No Image", description: "Please upload or capture an image first.", variant: "destructive" });
       return;
     }
-     if (!apiKeys.openaiKey) {
-       toast({ title: "API Key Missing", description: "Please enter and save your OpenAI API key.", variant: "destructive" });
-       return;
-    }
-     // Use placeholder if key is 'DISABLED' for testing
-     if (apiKeys.openaiKey === 'DISABLED') {
-        const fakeDescription = "一隻可愛嘅寵物 (假描述)"; // Fake Cantonese description
-        setAnimalDescription(fakeDescription);
-        toast({ title: "Using Fake Analysis", description: "Genkit is disabled, using placeholder analysis." });
-        return;
-     }
+     // Removed check for openaiKey from state
 
     setIsLoading(prev => ({ ...prev, vision: true }));
     setAnimalDescription('');
@@ -319,7 +304,11 @@ export default function SakuraPetFramesApp() {
        toast({ title: "Animal Analyzed", description: "Animal features identified." });
     } catch (error: any) {
       console.error("Error analyzing animal:", error);
-      toast({ title: "Analysis Error", description: `Failed to analyze animal features: ${error.message || error}`, variant: "destructive" });
+      // Provide clearer error message if AI model is not configured
+      const errorMessage = error.message && error.message.includes("AI model is not configured")
+          ? "AI model is not configured. Please ensure the GOOGLE_GENAI_API_KEY is correctly set in your environment variables."
+          : `Failed to analyze animal features: ${error.message || error}`;
+      toast({ title: "Analysis Error", description: errorMessage, variant: "destructive" });
     } finally {
       setIsLoading(prev => ({ ...prev, vision: false }));
     }
@@ -330,17 +319,7 @@ export default function SakuraPetFramesApp() {
       toast({ title: "Missing Information", description: "Please provide animal name, analyze the animal, and generate a background prompt first.", variant: "destructive" });
       return;
     }
-     if (!apiKeys.openaiKey) {
-       toast({ title: "API Key Missing", description: "Please enter and save your OpenAI API key.", variant: "destructive" });
-       return;
-    }
-    // Use placeholder if key is 'DISABLED' for testing
-     if (apiKeys.openaiKey === 'DISABLED') {
-        const fakeStory = `${animalName} 係一隻 ${animalDescription}。有一日佢喺個充滿櫻花嘅 ${selectedTag || '地方'} 探險，覺得好開心。(假故事)`;
-        setGeneratedStory(fakeStory);
-        toast({ title: "Using Fake Story", description: "Genkit is disabled, using placeholder story." });
-        return;
-     }
+     // Removed check for openaiKey from state
 
     setIsLoading(prev => ({ ...prev, story: true }));
     setGeneratedStory('');
@@ -355,7 +334,11 @@ export default function SakuraPetFramesApp() {
        toast({ title: "Story Generated", description: "Cantonese story created." });
     } catch (error: any) {
       console.error("Error generating story:", error);
-      toast({ title: "Generation Error", description: `Failed to generate Cantonese story: ${error.message || error}`, variant: "destructive" });
+      // Provide clearer error message if AI model is not configured
+      const errorMessage = error.message && error.message.includes("AI model is not configured")
+          ? "AI model is not configured. Please ensure the GOOGLE_GENAI_API_KEY is correctly set in your environment variables."
+          : `Failed to generate Cantonese story: ${error.message || error}`;
+      toast({ title: "Generation Error", description: errorMessage, variant: "destructive" });
     } finally {
       setIsLoading(prev => ({ ...prev, story: false }));
     }
@@ -506,7 +489,8 @@ export default function SakuraPetFramesApp() {
 
   // Derive current image source for preview, preferring captured, then uploaded (via Object URL)
   const previewImageSrc = capturedImage || currentObjectUrl;
-  const canGenerate = apiKeys.openaiKey && apiKeys.clipdropKey && !!previewImageSrc && animalName && selectedCategory && selectedTag;
+  // Updated canGenerate logic to only check for clipdrop key
+  const canGenerate = apiKeys.clipdropKey && !!previewImageSrc && animalName && selectedCategory && selectedTag;
   const showWebcam = isWebcamOpen && !capturedImage;
   const isProcessing = Object.values(isLoading).some(status => status);
 
@@ -527,22 +511,13 @@ export default function SakuraPetFramesApp() {
           <Card>
              <CardHeader>
                  <CardTitle className="text-xl">Settings</CardTitle>
-                 <CardDescription>Enter your API keys and pet's name. Stored locally.</CardDescription>
+                 <CardDescription>Enter your ClipDrop API key and pet's name. Stored locally.</CardDescription>
              </CardHeader>
              <CardContent className="space-y-4">
+                  {/* Removed Google AI Key input field */}
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                    {/* Updated Label for clarity on Genkit/Google AI */}
-                    <Label htmlFor="openaiKey">Google AI API Key (for Genkit)</Label>
-                    <Input
-                        id="openaiKey"
-                        type="password"
-                        placeholder="Enter Google AI Key or 'DISABLED'"
-                        value={apiKeys.openaiKey}
-                        onChange={(e) => setApiKeys(prev => ({ ...prev, openaiKey: e.target.value }))}
-                        className="mt-1"
-                    />
-                    </div>
+                    {/* Empty div to maintain layout if needed, or adjust grid cols */}
+                    <div>{/* Placeholder for layout */}</div>
                     <div>
                     <Label htmlFor="clipdropKey">ClipDrop API Key</Label>
                     <Input
@@ -692,8 +667,8 @@ export default function SakuraPetFramesApp() {
                  </div>
             </CardContent>
              <CardFooter>
-                 {/* Updated button text and disabled logic */}
-                <Button onClick={handleGeneratePrompt} disabled={!selectedCategory || !selectedTag || isLoading.prompt || !apiKeys.openaiKey } size="sm">
+                 {/* Updated button disabled logic - removed openaiKey check */}
+                <Button onClick={handleGeneratePrompt} disabled={!selectedCategory || !selectedTag || isLoading.prompt } size="sm">
                    {isLoading.prompt ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                    Generate Background Prompt
                 </Button>
@@ -713,13 +688,13 @@ export default function SakuraPetFramesApp() {
              </CardHeader>
              <CardContent className="space-y-4">
                 <div className="flex flex-col sm:flex-row gap-4">
-                    {/* Updated button disabled logic */}
-                    <Button onClick={handleAnalyzeAnimal} disabled={!previewImageSrc || isLoading.vision || !apiKeys.openaiKey} className="flex-1" variant="outline">
+                    {/* Updated button disabled logic - removed openaiKey check */}
+                    <Button onClick={handleAnalyzeAnimal} disabled={!previewImageSrc || isLoading.vision } className="flex-1" variant="outline">
                         {isLoading.vision ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                         Analyze Animal (廣東話)
                     </Button>
-                    {/* Updated button disabled logic */}
-                    <Button onClick={handleGenerateStory} disabled={!animalName || !animalDescription || !generatedPrompt || isLoading.story || !apiKeys.openaiKey} className="flex-1" variant="outline">
+                    {/* Updated button disabled logic - removed openaiKey check */}
+                    <Button onClick={handleGenerateStory} disabled={!animalName || !animalDescription || !generatedPrompt || isLoading.story } className="flex-1" variant="outline">
                          {isLoading.story ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                         Generate Story (廣東話)
                     </Button>
@@ -736,6 +711,7 @@ export default function SakuraPetFramesApp() {
                         <p className="text-sm p-2 bg-muted/50 rounded-md mt-1 whitespace-pre-wrap">{generatedStory}</p>
                     </div>
                   )}
+                   {/* Updated button disabled logic - removed canGenerate check as it included openaiKey */}
                    <Button onClick={handleProcessImage} disabled={!previewImageSrc || !generatedPrompt || isProcessing || !apiKeys.clipdropKey} className="w-full">
                         {(isLoading.clipdrop || isLoading.framing) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                        {(isLoading.clipdrop && !isLoading.framing) ? 'Replacing Background...' : (isLoading.framing ? 'Framing Image...' : 'Generate Final Framed Image')}

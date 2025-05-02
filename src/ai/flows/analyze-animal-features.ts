@@ -10,6 +10,7 @@
 
  import {ai} from '@/ai/ai-instance';
  import {z} from 'genkit';
+ import { GenkitError } from 'genkit'; // Corrected import path
 
  const AnalyzeAnimalFeaturesInputSchema = z.object({
    photoDataUri: z
@@ -30,17 +31,36 @@
  export async function analyzeAnimalFeatures(
    input: AnalyzeAnimalFeaturesInput
  ): Promise<AnalyzeAnimalFeaturesOutput> {
-    // Check if a model is configured before proceeding
-    if (!ai.model) {
-        console.warn("Attempted to call analyzeAnimalFeaturesFlow without a configured AI model. Check API key setup.");
-        // Throw a specific error to signal failure clearly
-        throw new Error("AI model is not configured. Please check your Google AI API key settings in the application.");
+    // The AI model availability is checked implicitly when calling the flow.
+    // ai.generate checks for configured models internally in Genkit v1.x.
+    try {
+        // Ensure a model is available before attempting the flow.
+        // Note: ai.model might not be sufficient if the prompt requires a specific model type (e.g., multimodal)
+        // A more robust check might involve trying a small test generation or checking capabilities.
+        if (!ai.listModels().find(m => m.startsWith('googleai/'))) { // Check if any Google AI model is configured
+             throw new Error("AI model (Google AI) is not configured. Please ensure the GOOGLE_GENAI_API_KEY is correctly set in your environment variables.");
+        }
+        return await analyzeAnimalFeaturesFlow(input);
+    } catch (error: any) {
+         // Catch errors from the flow execution, including initialization issues
+        console.error("Error executing analyzeAnimalFeaturesFlow:", error);
+
+        // Check if the error indicates an unconfigured model or API issue
+        if (error instanceof GenkitError && (error.status === 'UNAVAILABLE' || error.status === 'INVALID_ARGUMENT')) {
+             // Provide a user-friendly message for common configuration/API key issues
+             throw new Error("AI model is unavailable or configured incorrectly. Please check your GOOGLE_GENAI_API_KEY and ensure it's valid.");
+        } else if (error.message && error.message.includes("AI model is not configured")) {
+             // Catch the specific error thrown above if still relevant
+            throw new Error(error.message);
+        }
+        // Re-throw other errors
+        throw new Error(`Failed to analyze animal features: ${error.message || 'Unknown AI error'}`);
     }
-   return analyzeAnimalFeaturesFlow(input);
  }
 
  const prompt = ai.definePrompt({
    name: 'analyzeAnimalFeaturesPrompt',
+   model: 'googleai/gemini-2.0-flash', // Specify the model for this prompt
    input: {
      schema: z.object({
        photoDataUri: z
@@ -71,18 +91,11 @@
    outputSchema: AnalyzeAnimalFeaturesOutputSchema,
  },
  async input => {
-    try {
-        // The check in the wrapper function should prevent this call if no model exists
-       const {output} = await prompt(input); // Uses default model from ai-instance
-        // Ensure output is not null or undefined before returning
-        if (!output) {
-            throw new Error("Failed to analyze animal: No output from prompt.");
-        }
-       return output!;
-    } catch (error: any) {
-        // Catch potential errors during the prompt call (e.g., API issues)
-        console.error("Error during prompt execution in analyzeAnimalFeaturesFlow:", error);
-        // Re-throw or handle as appropriate
-        throw new Error(`Failed to analyze animal features: ${error.message || 'Unknown AI error'}`);
+    // No try-catch needed here for the prompt call itself if errors are handled in the wrapper
+    const {output} = await prompt(input); // Call the specific prompt
+    // Ensure output is not null or undefined before returning
+    if (!output) {
+        throw new Error("Failed to analyze animal: No output from prompt.");
     }
+   return output!;
  });
