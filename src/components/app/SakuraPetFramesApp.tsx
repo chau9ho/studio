@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X, ImagePlus, Palette, Sparkles, PartyPopper, FileImage, PencilRuler, Printer, QrCode, Cog, Link as LinkIcon } from 'lucide-react'; // Added Cog, LinkIcon icons
+import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X, ImagePlus, Palette, Sparkles, PartyPopper, FileImage, PencilRuler, Printer, QrCode, Cog, Link as LinkIcon, CheckCircle2, RefreshCw } from 'lucide-react'; // Added CheckCircle2, RefreshCw icons
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -24,6 +24,9 @@ import { generateCantoneseStory } from '@/ai/flows/generate-cantonese-story';
 
 // ClipDrop service and helpers
 import { replaceBackground, dataUrlToBlob, blobToDataUrl } from '@/services/clipdrop';
+
+// Server Action import
+import { listPetImages } from '@/actions/gcsActions';
 
 // Types
 type ApiKeys = {
@@ -66,8 +69,14 @@ export default function SakuraPetFramesApp() {
   const [animalName, setAnimalName] = useState<string>('');
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null); // Base64 Data URL
-  const [remoteImageUrlInput, setRemoteImageUrlInput] = useState<string>(''); // State for QR code upload URL input
-  const [isLoadingFromUrl, setIsLoadingFromUrl] = useState<boolean>(false); // Loading state for URL fetch
+  // const [remoteImageUrlInput, setRemoteImageUrlInput] = useState<string>(''); // State for QR code upload URL input - REMOVED
+  // const [isLoadingFromUrl, setIsLoadingFromUrl] = useState<boolean>(false); // Loading state for URL fetch - REMOVED
+  const [fetchedGcsImages, setFetchedGcsImages] = useState<string[]>([]); // State for fetched GCS image URLs
+  const [selectedGcsImage, setSelectedGcsImage] = useState<string | null>(null); // State for the selected GCS image URL
+  const [isFetchingGcsImages, setIsFetchingGcsImages] = useState<boolean>(false); // Loading state for GCS fetch
+  const [gcsFetchError, setGcsFetchError] = useState<string | null>(null); // Error state for GCS fetch
+
+
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]); // Changed to array for multiple tags
   const [generatedStory, setGeneratedStory] = useState<string>('');
@@ -172,7 +181,10 @@ export default function SakuraPetFramesApp() {
   const clearAllStates = () => {
       setUploadedImage(null);
       setCapturedImage(null);
-      setRemoteImageUrlInput(''); // Clear URL input
+      // setRemoteImageUrlInput(''); // Clear URL input - REMOVED
+      setFetchedGcsImages([]); // Clear fetched images
+      setSelectedGcsImage(null); // Clear selected GCS image
+      setGcsFetchError(null); // Clear GCS fetch error
       setFinalFramedImage(null);
       setGeneratedStory('');
       setSelectedCategory(null);
@@ -181,7 +193,8 @@ export default function SakuraPetFramesApp() {
       setProgress(0);
       setProgressText('');
       setIsGenerating(false);
-      setIsLoadingFromUrl(false); // Reset URL loading state
+      setIsFetchingGcsImages(false); // Reset GCS fetching state
+      // setIsLoadingFromUrl(false); // Reset URL loading state - REMOVED
       if (currentObjectUrl) {
         URL.revokeObjectURL(currentObjectUrl);
         setCurrentObjectUrl(null);
@@ -200,7 +213,8 @@ export default function SakuraPetFramesApp() {
        // Clear other image sources
        setUploadedImage(null);
        setCapturedImage(null);
-       setRemoteImageUrlInput('');
+       // setRemoteImageUrlInput(''); // REMOVED
+       setSelectedGcsImage(null); // Clear GCS selection
        setFinalFramedImage(null);
        setGeneratedStory('');
        if (currentObjectUrl) {
@@ -265,7 +279,8 @@ export default function SakuraPetFramesApp() {
         const dataUrl = tempCanvas.toDataURL('image/png');
          // Clear other image sources
          setUploadedImage(null);
-         setRemoteImageUrlInput('');
+         // setRemoteImageUrlInput(''); // REMOVED
+         setSelectedGcsImage(null); // Clear GCS selection
          setCapturedImage(dataUrl); // Set captured image
          setFinalFramedImage(null);
          setGeneratedStory('');
@@ -290,55 +305,127 @@ export default function SakuraPetFramesApp() {
     };
   }, [stopWebcam]);
 
-  // Function to load image from URL (from QR code upload)
-  const handleLoadFromUrl = async () => {
-    if (!remoteImageUrlInput || !remoteImageUrlInput.startsWith('https://storage.googleapis.com/')) {
-      toast({ title: "網址無效", description: "請輸入有效嘅 Google Cloud Storage 圖片網址。", variant: "destructive" });
-      return;
-    }
 
-    setIsLoadingFromUrl(true);
-    setUiError(null);
-    try {
-      // Fetch the image from the public URL
-      const response = await fetch(remoteImageUrlInput);
-      if (!response.ok) {
-        throw new Error(`無法載入圖片: ${response.statusText} (${response.status})`);
+    // Function to fetch images from GCS via server action
+    const fetchImagesFromGCS = useCallback(async () => {
+        if (!animalName) {
+            setFetchedGcsImages([]); // Clear images if name is empty
+            setGcsFetchError(null);
+            return;
+        }
+        setIsFetchingGcsImages(true);
+        setGcsFetchError(null);
+        setFetchedGcsImages([]); // Clear previous results
+        setSelectedGcsImage(null); // Clear selection
+
+        try {
+            console.log(`Fetching images for animal: ${animalName}`);
+            const urls = await listPetImages(animalName);
+            setFetchedGcsImages(urls);
+            if (urls.length === 0) {
+                 toast({ title: "搵唔到相", description: `喺雲端搵唔到 ${animalName} 嘅相。` });
+            } else {
+                 toast({ title: "搵到相喇！", description: `搵到 ${urls.length} 張 ${animalName} 嘅相。` });
+            }
+            console.log("Fetched image URLs:", urls);
+        } catch (error: any) {
+            console.error("Error fetching images from GCS:", error);
+            const errorMsg = `無法由雲端載入圖片: ${error.message}`;
+            setGcsFetchError(errorMsg);
+            toast({ title: "載入失敗", description: errorMsg, variant: "destructive" });
+        } finally {
+            setIsFetchingGcsImages(false);
+        }
+    }, [animalName, toast]);
+
+    // Trigger fetch when animal name changes (debounced slightly)
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            if (animalName) {
+                fetchImagesFromGCS();
+            } else {
+                 // Clear results if animal name is cleared
+                 setFetchedGcsImages([]);
+                 setSelectedGcsImage(null);
+                 setGcsFetchError(null);
+            }
+        }, 500); // Debounce for 500ms
+
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [animalName, fetchImagesFromGCS]);
+
+
+  // Function to handle selecting a fetched GCS image
+  const handleSelectGcsImage = async (imageUrl: string) => {
+     setSelectedGcsImage(imageUrl);
+     setUiError(null);
+
+     // Clear other primary image sources
+     setUploadedImage(null);
+     setCapturedImage(null);
+     if (currentObjectUrl) {
+         URL.revokeObjectURL(currentObjectUrl);
+         setCurrentObjectUrl(null);
+     }
+
+     // Load the selected GCS image as a Data URL for processing
+     // setIsLoadingFromUrl(true); // Re-use loading state name, or create a new one
+     setProgressText("由雲端載入緊圖片..."); // Indicate loading
+     setProgress(5); // Show some progress
+     try {
+       const response = await fetch(imageUrl);
+       if (!response.ok) {
+         throw new Error(`無法載入圖片: ${response.statusText} (${response.status})`);
+       }
+       const blob = await response.blob();
+       if (!blob.type.startsWith('image/')) {
+         throw new Error("載入嘅檔案唔係有效嘅圖片格式。");
+       }
+       const dataUrl = await blobToDataUrl(blob);
+       setCapturedImage(dataUrl); // Store the loaded image data URL in capturedImage state
+       console.log("Selected GCS image loaded as Data URL:", imageUrl);
+       toast({ title: "圖片已選取", description: "已選取並載入雲端圖片。" });
+        setProgress(0); // Clear progress after load
+        setProgressText('');
+     } catch (error: any) {
+       console.error("Error loading selected GCS image:", error);
+       toast({ title: "載入失敗", description: `無法載入選定嘅圖片: ${error.message}`, variant: "destructive" });
+       setUiError(`無法載入選定嘅圖片: ${error.message}`);
+       setSelectedGcsImage(null); // Deselect on error
+       setProgress(0);
+       setProgressText('');
+     } finally {
+       // setIsLoadingFromUrl(false);
+     }
+   };
+
+
+
+  // Function to load image from URL (used internally now for selected GCS image)
+  const loadGcsImageAsDataUrl = async (imageUrl: string): Promise<string> => {
+      // No need for UI loading indicators here as it's called internally
+      try {
+          const response = await fetch(imageUrl);
+          if (!response.ok) {
+              throw new Error(`無法載入圖片: ${response.statusText} (${response.status})`);
+          }
+          const blob = await response.blob();
+          if (!blob.type.startsWith('image/')) {
+              throw new Error("載入嘅檔案唔係有效嘅圖片格式。");
+          }
+          return await blobToDataUrl(blob);
+      } catch (error: any) {
+          console.error("Error loading GCS image as data URL:", error);
+          throw new Error(`無法處理 GCS 圖片: ${error.message}`);
       }
-      const blob = await response.blob();
-
-      if (!blob.type.startsWith('image/')) {
-        throw new Error("載入嘅檔案唔係有效嘅圖片格式。");
-      }
-
-      const dataUrl = await blobToDataUrl(blob);
-
-      // Clear other image sources
-      setUploadedImage(null);
-      setCapturedImage(dataUrl); // Use capturedImage state for URL-loaded image (as it's now a data URL)
-      setFinalFramedImage(null);
-      setGeneratedStory('');
-      if (currentObjectUrl) {
-        URL.revokeObjectURL(currentObjectUrl);
-        setCurrentObjectUrl(null);
-      }
-
-      toast({ title: "圖片載入成功", description: "已成功由網址載入圖片。" });
-      console.log("Image loaded from URL:", remoteImageUrlInput);
-
-    } catch (error: any) {
-      console.error("Error loading image from URL:", error);
-      toast({ title: "載入失敗", description: `無法由網址載入圖片: ${error.message}`, variant: "destructive" });
-      setUiError(`無法由網址載入圖片: ${error.message}`);
-    } finally {
-      setIsLoadingFromUrl(false);
-    }
   };
 
 
   const getCurrentImageAsDataUrl = (): Promise<string | null> => {
     return new Promise(async (resolve, reject) => {
-      if (capturedImage) { // This now handles both webcam and URL-loaded images
+      if (capturedImage) { // Handles webcam, manually loaded URL, and now SELECTED GCS image
         resolve(capturedImage);
       } else if (uploadedImage) {
         try {
@@ -350,7 +437,20 @@ export default function SakuraPetFramesApp() {
              setUiError("無法讀取上載嘅圖片檔案。");
              reject(new Error("Could not read uploaded image file."));
         }
-      } else {
+      }
+      // Removed direct selectedGcsImage conversion here - it's loaded into capturedImage on selection
+      // else if (selectedGcsImage) {
+      //     try {
+      //         const dataUrl = await loadGcsImageAsDataUrl(selectedGcsImage);
+      //         resolve(dataUrl);
+      //     } catch (error: any) {
+      //         console.error("Error loading selected GCS image for processing:", error);
+      //         toast({ title: "圖片錯誤", description: `無法處理選定嘅雲端圖片: ${error.message}`, variant: "destructive" });
+      //         setUiError(`無法處理選定嘅雲端圖片: ${error.message}`);
+      //         reject(error);
+      //     }
+      // }
+      else {
         resolve(null);
       }
     });
@@ -452,9 +552,9 @@ export default function SakuraPetFramesApp() {
         return;
     }
     // Updated check: Ensure at least one image source is present
-    if (!uploadedImage && !capturedImage) {
-        toast({ title: "未有圖片", description: "請上載、拍攝或用QR Code載入寵物相片先。", variant: "destructive" });
-        setUiError("請上載、拍攝或用QR Code載入寵物相片先。");
+    if (!uploadedImage && !capturedImage) { // capturedImage now covers webcam and selected GCS image
+        toast({ title: "未有圖片", description: "請上載、拍攝或由雲端選擇寵物相片先。", variant: "destructive" });
+        setUiError("請上載、拍攝或由雲端選擇寵物相片先。");
         setIsGenerating(false);
         return;
     }
@@ -790,11 +890,11 @@ export default function SakuraPetFramesApp() {
 
 
   // Derive current image source for preview
-  // Order: captured (webcam/URL), uploaded (file), null
+  // Order: captured (webcam/selected GCS), uploaded (file), null
   const previewImageSrc = capturedImage || currentObjectUrl;
   const showWebcam = isWebcamOpen && !capturedImage;
-  // Updated condition to check selectedTags array length and animalName
-  const canGenerate = !!(uploadedImage || capturedImage) && !!selectedCategory && selectedTags.length > 0 && !!apiKeys.clipdropKey && !!animalName;
+  // Updated condition to check selectedTags array length and animalName, and selectedGcsImage
+   const canGenerate = !!(uploadedImage || capturedImage) && !!selectedCategory && selectedTags.length > 0 && !!apiKeys.clipdropKey && !!animalName;
 
   return (
     <TooltipProvider>
@@ -943,7 +1043,7 @@ export default function SakuraPetFramesApp() {
                                <TabsList className="grid w-full grid-cols-3"> {/* Changed to grid-cols-3 */}
                                    <TabsTrigger value="upload"><Upload className="mr-2 h-4 w-4 inline"/>上載</TabsTrigger>
                                    <TabsTrigger value="webcam"><Camera className="mr-2 h-4 w-4 inline"/>拍攝</TabsTrigger>
-                                   <TabsTrigger value="qrcode"><QrCode className="mr-2 h-4 w-4 inline"/>QR Code</TabsTrigger> {/* Added QR Code Tab */}
+                                   <TabsTrigger value="qrcode"><QrCode className="mr-2 h-4 w-4 inline"/>雲端</TabsTrigger> {/* Changed QR Code Tab label */}
                                </TabsList>
                                <TabsContent value="upload">
                                    <div className="space-y-2 pt-2">
@@ -984,38 +1084,65 @@ export default function SakuraPetFramesApp() {
                                        )}
                                    </div>
                                </TabsContent>
-                               <TabsContent value="qrcode"> {/* Added QR Code Content */}
+                               <TabsContent value="qrcode"> {/* Updated QR Code / Cloud Tab Content */}
                                   <div className="space-y-4 pt-4">
-                                     {!animalName && (
-                                         <Alert variant="destructive">
-                                             <AlertTitle>請先輸入寵物名</AlertTitle>
-                                             <AlertDescription>
-                                                 你需要先喺右邊輸入寵物名，先可以生成QR Code嚟上載圖片。
-                                             </AlertDescription>
-                                         </Alert>
-                                     )}
-                                     {animalName && (
-                                         <div className='flex flex-col items-center gap-4'>
-                                             <p className="text-sm text-center text-muted-foreground">用手機掃描 QR Code，上載寵物相片。</p>
-                                             <div className="p-2 bg-white rounded-md inline-block shadow-md">
-                                                <QRCodeCanvas value={qrUploadUrl} size={160} includeMargin={true} />
-                                             </div>
-                                             <p className="text-xs text-center text-muted-foreground">上載完成後，將圖片網址貼喺下面：</p>
-                                              <div className="flex w-full max-w-sm items-center space-x-2">
-                                                 <Input
-                                                     type="url"
-                                                     placeholder="貼上 Google Storage 網址..."
-                                                     value={remoteImageUrlInput}
-                                                     onChange={(e) => setRemoteImageUrlInput(e.target.value)}
-                                                     disabled={isLoadingFromUrl}
-                                                 />
-                                                 <Button type="button" onClick={handleLoadFromUrl} disabled={isLoadingFromUrl || !remoteImageUrlInput}>
-                                                     {isLoadingFromUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4"/>}
-                                                     <span className="ml-1">載入</span>
-                                                 </Button>
-                                             </div>
-                                         </div>
-                                     )}
+                                     {/* QR Code Section */}
+                                     <div className='flex flex-col items-center gap-4 border-b pb-4 mb-4'>
+                                          <p className="text-sm text-center text-muted-foreground">用手機掃描 QR Code，上載寵物相片到雲端。</p>
+                                           {!animalName ? (
+                                               <Alert variant="destructive">
+                                                   <AlertTitle>請先輸入寵物名</AlertTitle>
+                                                   <AlertDescription>
+                                                       你需要先喺右邊輸入寵物名，先可以生成QR Code。
+                                                   </AlertDescription>
+                                               </Alert>
+                                           ) : (
+                                               <div className="p-2 bg-white rounded-md inline-block shadow-md">
+                                                  <QRCodeCanvas value={qrUploadUrl} size={160} includeMargin={true} />
+                                               </div>
+                                           )}
+                                      </div>
+
+                                      {/* Fetched Images Section */}
+                                      <div className="space-y-2">
+                                        <div className="flex justify-between items-center">
+                                             <Label className="text-sm text-muted-foreground">喺雲端搵到嘅相：</Label>
+                                             <Button onClick={fetchImagesFromGCS} variant="ghost" size="sm" disabled={isFetchingGcsImages || !animalName} title="重新整理雲端圖片">
+                                                <RefreshCw className={`h-4 w-4 ${isFetchingGcsImages ? 'animate-spin' : ''}`} />
+                                             </Button>
+                                        </div>
+                                          {isFetchingGcsImages && <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> 搵緊相...</p>}
+                                          {gcsFetchError && !isFetchingGcsImages && <Alert variant="destructive"><AlertDescription>{gcsFetchError}</AlertDescription></Alert>}
+                                          {!isFetchingGcsImages && fetchedGcsImages.length === 0 && animalName && (
+                                             <p className="text-sm text-muted-foreground">喺雲端搵唔到 '{animalName}' 嘅相。試下用 QR code 上載？</p>
+                                          )}
+                                          {fetchedGcsImages.length > 0 && (
+                                              <ScrollArea className="h-40 w-full rounded-md border">
+                                                 <div className="p-2 grid grid-cols-3 gap-2">
+                                                      {fetchedGcsImages.map((url) => (
+                                                          <button
+                                                              key={url}
+                                                              onClick={() => handleSelectGcsImage(url)}
+                                                              className={`relative aspect-square rounded-md overflow-hidden border-2 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${selectedGcsImage === url ? 'border-pink-500 ring-2 ring-pink-500 ring-offset-2' : 'border-transparent hover:border-pink-300'}`}
+                                                          >
+                                                              <img
+                                                                  src={url}
+                                                                  alt={`Fetched pet image ${url.split('/').pop()}`}
+                                                                  className="object-cover w-full h-full"
+                                                                  loading="lazy" // Lazy load images
+                                                                   onError={(e) => { e.currentTarget.style.display='none'; /* Hide broken images */ }}
+                                                              />
+                                                              {selectedGcsImage === url && (
+                                                                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                                                      <CheckCircle2 className="h-6 w-6 text-white" />
+                                                                  </div>
+                                                              )}
+                                                          </button>
+                                                      ))}
+                                                 </div>
+                                              </ScrollArea>
+                                          )}
+                                      </div>
                                   </div>
                                </TabsContent>
                            </Tabs>
@@ -1023,8 +1150,9 @@ export default function SakuraPetFramesApp() {
                                <div className="mt-4">
                                    <Label>預覽:</Label>
                                    <img
-                                      src={previewImageSrc}
-                                      alt="已上載、拍攝或載入嘅寵物相"
+                                      // Use selectedGcsImage directly for preview if it's the source, otherwise use derived previewImageSrc
+                                      src={selectedGcsImage || previewImageSrc}
+                                      alt="已上載、拍攝或由雲端選取嘅寵物相"
                                       width={300}
                                       height={225}
                                       className="rounded-md border mt-1 object-cover bg-muted shadow-md"
@@ -1033,9 +1161,9 @@ export default function SakuraPetFramesApp() {
                                           console.error("Error loading preview image:", e);
                                           toast({ title: "圖片載入錯誤", description: "無法顯示預覽圖片。", variant: "destructive" });
                                           setUiError("無法顯示預覽圖片。");
-                                          if (previewImageSrc === currentObjectUrl) setCurrentObjectUrl(null);
-                                          // If it was a captured/URL image, clear that state too
-                                          if (previewImageSrc === capturedImage) setCapturedImage(null);
+                                           if (selectedGcsImage) setSelectedGcsImage(null); // Clear selection if GCS image fails
+                                           else if (previewImageSrc === currentObjectUrl) setCurrentObjectUrl(null);
+                                           else if (previewImageSrc === capturedImage) setCapturedImage(null);
                                        }}
                                    />
                                </div>
@@ -1049,12 +1177,12 @@ export default function SakuraPetFramesApp() {
                                <Input
                                    id="animalName"
                                    type="text"
-                                   placeholder="例如: 毛毛, 旺財 (請用英文)"
+                                   placeholder="例如: 毛毛, 旺財" // Removed English requirement, GCS path handles encoding
                                    value={animalName}
                                    onChange={(e) => setAnimalName(e.target.value)}
                                    className="mt-1"
                                />
-                               <p className="text-xs text-muted-foreground mt-1">提示：寵物名會用嚟生成 QR Code 網址。</p>
+                               <p className="text-xs text-muted-foreground mt-1">提示：寵物名會用嚟生成 QR Code 同喺雲端搵相。</p>
                            </div>
                            <div>
                               <Label htmlFor="category" className="font-semibold text-lg text-purple-600">C. 背景主題</Label>
