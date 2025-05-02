@@ -170,3 +170,67 @@ body {
 .animate-subtle-pulse {
    animation: subtle-pulse 2s infinite ease-in-out;
 }
+
+/* Print Styles */
+@media print {
+  body {
+    /* Reset background for printing */
+    background-image: none !important;
+    background-color: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact !important; /* Ensure background colors print */
+    print-color-adjust: exact !important;
+    min-height: auto !important;
+  }
+
+  .container {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .printable-area {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .printable-area img {
+    max-width: 100% !important; /* Ensure image fits page */
+    height: auto !important;
+    display: block !important;
+    margin: 0 auto !important; /* Center image if needed */
+    page-break-inside: avoid !important;
+  }
+
+
+  /* Hide elements not meant for printing */
+  .non-printable {
+    display: none !important;
+  }
+
+  /* Hide header, footer, inputs, buttons etc. */
+  header, footer, nav, button, input, select, textarea,
+  [data-radix-portal], /* Hide Radix portals like Toasts, Dialogs */
+  .sakura-petal, /* Hide falling petals */
+  [data-orientation="horizontal"], /* Hide separators etc. */
+  .animate-text-focus-in, /* Hide animations */
+  .animate-text-pop-up-on-hover:hover,
+  .animate-subtle-pulse,
+  .progress-bar-container, /* Hide progress bar if you have a wrapper */
+  .qr-code-container, /* Initially hide QR code */
+  .story-container /* Hide story by default */
+  {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  @page {
+    size: 4in 6in; /* Set 4R page size */
+    margin: 0; /* Remove default margins */
+  }
+}

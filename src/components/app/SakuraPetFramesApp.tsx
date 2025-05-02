@@ -1,4 +1,4 @@
-"use client";
+{"use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,11 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X, ImagePlus, Palette, Sparkles, PartyPopper, FileImage, PencilRuler } from 'lucide-react'; // Added icons
+import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X, ImagePlus, Palette, Sparkles, PartyPopper, FileImage, PencilRuler, Printer, QrCode } from 'lucide-react'; // Added Print, QrCode icons
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import FallingSakura from '@/components/animations/FallingSakura'; // Import the new component
+import { QRCodeCanvas } from 'qrcode.react'; // Import QR code component
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'; // Import Dialog
+
 
 // AI flow imports
 import { generateSakuraPrompt } from '@/ai/flows/generate-sakura-prompt';
@@ -119,7 +122,7 @@ export default function SakuraPetFramesApp() {
     frameImg.src = '/frame.png'; // Assumes frame.png is in the public folder
     frameImg.onload = () => {
         frameImageRef.current = frameImg;
-        console.log("Frame image loaded successfully from /frame.png");
+        console.log("Frame image loaded successfully from /public/frame.png");
     };
     frameImg.onerror = (e) => { // Use 'e' for the event object
         console.error("Failed to load frame image from /frame.png.", e);
@@ -683,6 +686,17 @@ export default function SakuraPetFramesApp() {
     }
   };
 
+  const handlePrint = () => {
+    if (!finalFramedImage) {
+      toast({ title: "未有圖片", description: "請先生成最終圖片先可以列印。", variant: "destructive" });
+      setUiError("請先生成最終圖片先可以列印。");
+      return;
+    }
+    // Open print dialog
+    window.print();
+  };
+
+
   // Handle multiple tag selection
   const handleTagChange = (tag: string, checked: boolean | "indeterminate") => {
       setSelectedTags(prevTags => {
@@ -704,7 +718,7 @@ export default function SakuraPetFramesApp() {
   return (
     <div className="container mx-auto p-4 max-w-4xl relative"> {/* Added relative positioning */}
       <FallingSakura /> {/* Add the falling sakura component */}
-      <Card className="w-full shadow-lg overflow-hidden relative z-10 bg-card/80 backdrop-blur-sm"> {/* Make card slightly transparent and blurred */}
+      <Card className="w-full shadow-lg overflow-hidden relative z-10 bg-card/80 backdrop-blur-sm non-printable"> {/* Make card slightly transparent and blurred, hide on print */}
         <CardHeader>
           <CardTitle className="text-3xl font-bold text-center text-pink-500 flex items-center justify-center gap-2 animate-text-focus-in">
             <span className="animate-text-pop-up-on-hover inline-block">🌸</span>
@@ -747,7 +761,7 @@ export default function SakuraPetFramesApp() {
         <CardContent className="space-y-6">
 
           {/* Simplified Combined Input Section */}
-          <Card>
+          <Card className="non-printable">
              <CardHeader>
                 <CardTitle className="text-xl flex items-center gap-2"><ImagePlus size={24} /> 1. 揀選寵物靚相 &amp; 風格</CardTitle>
                 <CardDescription>上載/影相，再揀個主題同風格！</CardDescription>
@@ -910,7 +924,7 @@ export default function SakuraPetFramesApp() {
 
 
           {/* Step 2: Generate */}
-          <Card>
+          <Card className="non-printable">
              <CardHeader>
                 <CardTitle className="text-xl flex items-center gap-2"><Sparkles size={24} /> 2. 施展魔法 ✨</CardTitle>
                 <CardDescription>撳個掣，等陣就有靚相睇！</CardDescription>
@@ -925,7 +939,7 @@ export default function SakuraPetFramesApp() {
                     {isGenerating ? '魔法變身中...' : '開始變身！'}
                  </Button>
                   {isGenerating && (
-                    <div className="space-y-2 pt-4">
+                    <div className="space-y-2 pt-4 progress-bar-container"> {/* Added wrapper class */}
                           {/* Funky Progress Bar */}
                          <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 overflow-hidden shadow-inner relative">
                              {/* Sparkle effect */}
@@ -971,22 +985,22 @@ export default function SakuraPetFramesApp() {
 
           {/* Step 3: Result */}
            {(finalFramedImage || generatedStory) && !isGenerating && progress === 100 && (
-             <Card>
+             <Card className="non-printable"> {/* Hide card container itself on print */}
                  <CardHeader>
                     <CardTitle className="text-xl flex items-center gap-2"><PartyPopper size={24} /> 3. 魔法相框完成 🎉</CardTitle>
                     <CardDescription>睇下你嘅大作！</CardDescription>
                  </CardHeader>
                  <CardContent className="flex flex-col items-center space-y-4">
+                    {/* --- Image for Display (will be hidden on print) --- */}
                     {finalFramedImage && (
-                        <div className="w-full max-w-[400px] md:max-w-[500px] mx-auto"> {/* Constrain image width */}
+                        <div className="w-full max-w-[400px] md:max-w-[500px] mx-auto non-printable"> {/* Hide this wrapper on print */}
                              <Label className="text-lg font-semibold text-center block mb-2">🖼️ 你的專屬相框:</Label>
                             <img
                                 src={finalFramedImage}
                                 alt={`Framed photo of ${animalName}`}
-                                // Use width/height attributes for aspect ratio hint
                                 width={FRAME_WIDTH}
                                 height={FRAME_HEIGHT}
-                                className="rounded-md border shadow-md object-contain bg-muted w-full h-auto" // Ensure responsive scaling
+                                className="rounded-md border shadow-md object-contain bg-muted w-full h-auto"
                                  onError={(e) => {
                                     console.error("Error loading final framed image:", e);
                                     toast({ title: "圖片載入錯誤", description: "無法顯示最終圖片。", variant: "destructive" });
@@ -997,17 +1011,39 @@ export default function SakuraPetFramesApp() {
                          </div>
                     )}
                      {generatedStory && (
-                        <div className="w-full p-4 bg-pink-50 rounded-md border border-pink-200 mt-4"> {/* Adjusted story background */}
+                        <div className="w-full p-4 bg-pink-50 rounded-md border border-pink-200 mt-4 story-container"> {/* Add class to hide on print */}
                              <Label className="text-lg font-semibold text-pink-700 flex items-center gap-2">📖 寵物小故事:</Label>
                              <p className="text-sm mt-2 whitespace-pre-wrap text-gray-700">{generatedStory}</p>
                          </div>
                       )}
                  </CardContent>
-                 <CardFooter className="flex justify-center gap-4 pt-4">
+                 <CardFooter className="flex justify-center gap-4 pt-4 non-printable"> {/* Hide footer on print */}
                      {finalFramedImage && (
-                        <Button onClick={handleDownload}>
-                           <Download className="mr-2 h-4 w-4" /> 下載靚相
-                        </Button>
+                        <>
+                         <Button onClick={handleDownload}>
+                            <Download className="mr-2 h-4 w-4" /> 下載靚相
+                         </Button>
+                         <Button onClick={handlePrint}>
+                           <Printer className="mr-2 h-4 w-4" /> 列印 (4R)
+                         </Button>
+                          <Dialog>
+                            <DialogTrigger asChild>
+                               <Button variant="outline">
+                                 <QrCode className="mr-2 h-4 w-4" /> 顯示 QR Code
+                               </Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[425px] flex flex-col items-center">
+                              <DialogHeader>
+                                <DialogTitle>用手機掃描下載圖片</DialogTitle>
+                              </DialogHeader>
+                               {finalFramedImage ? (
+                                <QRCodeCanvas value={finalFramedImage} size={256} includeMargin={true} />
+                               ) : (
+                                 <p>無法生成 QR Code，因為圖片唔存在。</p>
+                               )}
+                            </DialogContent>
+                          </Dialog>
+                        </>
                      )}
                      <Button onClick={handleReset} variant="outline">
                         <RotateCcw className="mr-2 h-4 w-4" /> 再玩一次
@@ -1023,10 +1059,18 @@ export default function SakuraPetFramesApp() {
          {/* <canvas ref={canvasRef} className="hidden"></canvas> */}
 
         </CardContent>
-         <CardFooter className="text-center text-xs text-muted-foreground justify-center">
+         <CardFooter className="text-center text-xs text-muted-foreground justify-center non-printable"> {/* Hide on print */}
              Powered by ClipDrop & Google AI. Inspired by Montara. ✨
          </CardFooter>
       </Card>
+
+       {/* --- Image for Printing (Only visible on print) --- */}
+       {finalFramedImage && (
+           <div className="hidden printable-area"> {/* Hide by default, show on print */}
+               <img src={finalFramedImage} alt={`Printable framed photo of ${animalName}`} />
+           </div>
+       )}
+
     </div>
   );
 }
