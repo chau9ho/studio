@@ -3,10 +3,16 @@ import type {NextConfig} from 'next';
 const nextConfig: NextConfig = {
   /* config options here */
   typescript: {
-    ignoreBuildErrors: true,
+    // !! WARN !!
+    // Dangerously allow production builds to successfully complete even if
+    // your project has type errors.
+    // !! WARN !!
+    ignoreBuildErrors: true, // Consider setting this to false for better type safety
   },
   eslint: {
-    ignoreDuringBuilds: true,
+    // Warning: This allows production builds to successfully complete even if
+    // your project has ESLint errors.
+    ignoreDuringBuilds: true, // Consider setting this to false for better code quality
   },
   images: {
     remotePatterns: [
@@ -16,21 +22,14 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
-      // Allow loading base64 encoded images displayed via src attribute
-       {
-        protocol: 'data',
-        hostname: '',
-        port: '',
-        pathname: '/**',
-      },
+      // Removed 'data:' protocol pattern for security reasons.
+      // Base64 strings can be used directly in `src` for `<img>` tags.
+      // For Blobs, use URL.createObjectURL() and manage the lifecycle.
+      // `next/image` does not directly support Data URLs or Blob URLs in `src`.
     ],
-      // Allow loading images via blob URLs (e.g., URL.createObjectURL)
-      // Note: This might require additional configuration depending on Next.js version.
-      // For newer versions, `remotePatterns` might not directly support blob URLs.
-      // If issues arise, consider serving the blob through a temporary server route or
-      // directly using <img> tags instead of next/image for blob URLs.
-      // The 'data:' protocol above should cover most base64 cases.
   },
+  // Recommended: Enable React Strict Mode for identifying potential problems in an application.
+  reactStrictMode: true,
 };
 
 export default nextConfig;
