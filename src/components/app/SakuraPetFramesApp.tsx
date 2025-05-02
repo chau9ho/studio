@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X, ImagePlus, Palette, Sparkles, PartyPopper, FileImage, PencilRuler, Printer, QrCode, Cog, Link as LinkIcon, CheckCircle2, RefreshCw } from 'lucide-react'; // Added CheckCircle2, RefreshCw icons
+import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X, ImagePlus, Palette, Sparkles, PartyPopper, FileImage, PencilRuler, Printer, QrCode, Cog, Link as LinkIcon, CheckCircle2, RefreshCw, CloudUpload } from 'lucide-react'; // Added CloudUpload icon
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -28,7 +28,7 @@ import { generateCantoneseStory } from '@/ai/flows/generate-cantonese-story';
 import { replaceBackground, dataUrlToBlob, blobToDataUrl } from '@/services/clipdrop';
 
 // Server Action imports
-import { listPetImages, fetchGcsImageAsDataUrl } from '@/actions/gcsActions'; // Import new action
+import { listPetImages, fetchGcsImageAsDataUrl, uploadFramedImageToGcs } from '@/actions/gcsActions'; // Import new upload action
 
 // Types
 type ApiKeys = {
@@ -77,8 +77,6 @@ export default function SakuraPetFramesApp() {
   const [animalName, setAnimalName] = useState<string>('');
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null); // Base64 Data URL
-  // const [remoteImageUrlInput, setRemoteImageUrlInput] = useState<string>(''); // State for QR code upload URL input - REMOVED
-  // const [isLoadingFromUrl, setIsLoadingFromUrl] = useState<boolean>(false); // Loading state for URL fetch - REMOVED
   const [fetchedGcsImages, setFetchedGcsImages] = useState<string[]>([]); // State for fetched GCS image URLs
   const [selectedGcsImage, setSelectedGcsImage] = useState<string | null>(null); // State for the selected GCS image URL
   const [isFetchingGcsImages, setIsFetchingGcsImages] = useState<boolean>(false); // Loading state for GCS fetch
@@ -88,7 +86,10 @@ export default function SakuraPetFramesApp() {
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]); // Changed to array for multiple tags
   const [generatedStory, setGeneratedStory] = useState<string>('');
-  const [finalFramedImage, setFinalFramedImage] = useState<string | null>(null); // Base64 Data URL
+  const [finalFramedImage, setFinalFramedImage] = useState<string | null>(null); // Base64 Data URL for local display/download
+  const [finalGcsUrl, setFinalGcsUrl] = useState<string | null>(null); // URL of the uploaded framed image in GCS
+  const [isUploading, setIsUploading] = useState<boolean>(false); // State for upload status
+
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
   const [progressText, setProgressText] = useState<string>(''); // Added state for progress text
@@ -190,11 +191,11 @@ export default function SakuraPetFramesApp() {
   const clearAllStates = () => {
       setUploadedImage(null);
       setCapturedImage(null);
-      // setRemoteImageUrlInput(''); // Clear URL input - REMOVED
       setFetchedGcsImages([]); // Clear fetched images
       setSelectedGcsImage(null); // Clear selected GCS image
       setGcsFetchError(null); // Clear GCS fetch error
       setFinalFramedImage(null);
+      setFinalGcsUrl(null); // Clear GCS URL
       setGeneratedStory('');
       setSelectedCategory(null);
       setSelectedTags([]);
@@ -203,7 +204,7 @@ export default function SakuraPetFramesApp() {
       setProgressText('');
       setIsGenerating(false);
       setIsFetchingGcsImages(false); // Reset GCS fetching state
-      // setIsLoadingFromUrl(false); // Reset URL loading state - REMOVED
+      setIsUploading(false); // Reset uploading state
       if (currentObjectUrl) {
         URL.revokeObjectURL(currentObjectUrl);
         setCurrentObjectUrl(null);
@@ -222,9 +223,9 @@ export default function SakuraPetFramesApp() {
        // Clear other image sources
        setUploadedImage(null);
        setCapturedImage(null);
-       // setRemoteImageUrlInput(''); // REMOVED
        setSelectedGcsImage(null); // Clear GCS selection
        setFinalFramedImage(null);
+       setFinalGcsUrl(null); // Clear GCS URL
        setGeneratedStory('');
        if (currentObjectUrl) {
          URL.revokeObjectURL(currentObjectUrl);
@@ -291,6 +292,7 @@ export default function SakuraPetFramesApp() {
              setSelectedGcsImage(null);
              setCapturedImage(dataUrl);
              setFinalFramedImage(null);
+             setFinalGcsUrl(null); // Clear GCS URL
              setGeneratedStory('');
              if (currentObjectUrl) {
                  URL.revokeObjectURL(currentObjectUrl);
@@ -377,6 +379,8 @@ export default function SakuraPetFramesApp() {
      // Clear other primary image sources
      setUploadedImage(null);
      setCapturedImage(null);
+     setFinalFramedImage(null); // Also clear final images
+     setFinalGcsUrl(null);
      if (currentObjectUrl) {
          URL.revokeObjectURL(currentObjectUrl);
          setCurrentObjectUrl(null);
@@ -422,7 +426,6 @@ export default function SakuraPetFramesApp() {
              reject(new Error("Could not read uploaded image file."));
         }
       }
-      // Removed direct conversion logic for selectedGcsImage - it's handled by handleSelectGcsImage now
       else {
         resolve(null);
       }
@@ -516,7 +519,9 @@ export default function SakuraPetFramesApp() {
     setProgressText('');
     setIsGenerating(true); // This now triggers the overlay
     setFinalFramedImage(null);
+    setFinalGcsUrl(null); // Clear previous GCS URL
     setGeneratedStory('');
+    setIsUploading(false);
 
     let initialImageDataUrl: string | null = null;
     try {
@@ -531,13 +536,6 @@ export default function SakuraPetFramesApp() {
         toast({ title: "圖片錯誤", description: `讀取圖片失敗: ${error.message}`, variant: "destructive" });
         return;
     }
-    // // Redundant check - covered by the try-catch block above
-    // if (!uploadedImage && !capturedImage) {
-    //     toast({ title: "未有圖片", description: "請上載、拍攝或由雲端選擇寵物相片先。", variant: "destructive" });
-    //     setUiError("請上載、拍攝或由雲端選擇寵物相片先。");
-    //     setIsGenerating(false);
-    //     return;
-    // }
 
      if (!selectedCategory || selectedTags.length === 0) {
       toast({ title: "未揀好", description: "請選擇一個背景主題同至少一個風格。", variant: "destructive" });
@@ -623,7 +621,7 @@ export default function SakuraPetFramesApp() {
                throw error; // Re-throw
          }
          setGeneratedStory(storyResult.story);
-         setProgress(65);
+         setProgress(60); // Adjust progress
          console.log("Story generated.");
 
         setProgressText("施展緊背景替換魔法...🪄");
@@ -643,7 +641,6 @@ export default function SakuraPetFramesApp() {
              } else if (error.message.includes("API Error (429)")) {
                   setUiError("ClipDrop API 使用量已達上限，請稍後再試。");
              } else if (error.message.includes("API Error (400)") && error.message.includes("resolution exceeds")) {
-                // This case is handled by resize, but keep as fallback
                  setUiError("圖片解像度過高，即使嘗試調整後仍無法處理。");
              }
               else if (error.message.includes("Failed to fetch")) {
@@ -653,16 +650,40 @@ export default function SakuraPetFramesApp() {
         }
         const processedImageBlob = clipdropResponse.image;
         const processedImageDataUrl = await blobToDataUrl(processedImageBlob);
-        setProgress(85);
+        setProgress(75); // Adjust progress
         console.log("Background replaced.");
 
         setProgressText("最後一步，加個靚相框...🖼️");
         console.log("Framing image...");
-        await frameImage(processedImageDataUrl); // frameImage handles its own errors
-        setProgress(100);
-        setProgressText('魔法變身完成! ✨🎉');
-        console.log("Magic complete!");
-        toast({ title: "✨ 魔法相框變身完成 ✨", description: "快啲睇下你嘅寵物靚相啦！" });
+        // Frame image now returns the data URL
+        const framedDataUrl = await frameImage(processedImageDataUrl);
+        setFinalFramedImage(framedDataUrl); // Set local state for immediate display/download
+        setProgress(85); // Adjust progress
+        console.log("Image framed.");
+
+        // --- Upload to GCS ---
+        setProgressText("將靚相放上雲端...☁️");
+        setIsUploading(true); // Indicate upload start
+        console.log("Uploading framed image to GCS...");
+        try {
+             const uploadedUrl = await uploadFramedImageToGcs(framedDataUrl, animalName);
+             setFinalGcsUrl(uploadedUrl); // Store the GCS URL
+             setProgress(100);
+             setProgressText('魔法變身完成! 相已上傳! ✨🎉');
+             console.log("Magic complete! Image uploaded to GCS:", uploadedUrl);
+             toast({ title: "✨ 魔法相框變身完成 ✨", description: "靚相已經整好兼擺上雲端！" });
+        } catch (uploadError: any) {
+             console.error("Error uploading framed image to GCS:", uploadError);
+             setUiError(`圖片已生成但上傳雲端失敗: ${uploadError.message}. 你仍然可以下載本地圖片。`);
+             // Keep progress lower to indicate upload failed, but generation succeeded
+             setProgress(95);
+             setProgressText('魔法變身完成，但上傳失敗...😢');
+             toast({ title: "變身完成但上傳失敗", description: `圖片已生成但上傳雲端失敗: ${uploadError.message}`, variant: "destructive" });
+             // Do not throw here, let the user download the local image
+        } finally {
+             setIsUploading(false); // Indicate upload end
+        }
+
 
     } catch (error: any) {
         console.error("Error during generation process:", error);
@@ -676,13 +697,13 @@ export default function SakuraPetFramesApp() {
         toast({ title: "變身失敗", description: displayError, variant: "destructive" });
     } finally {
         setIsGenerating(false); // This will hide the overlay
-        // Keep progress at 100 or show error text
+        // Keep progress at 100 or show error text based on success/failure
     }
   };
 
 
-   const frameImage = (processedImageSrc: string): Promise<void> => {
-     return new Promise<void>((resolve, reject) => {
+   const frameImage = (processedImageSrc: string): Promise<string> => { // Return Promise<string>
+     return new Promise<string>((resolve, reject) => { // Return string
         console.log("Starting image framing process...");
         if (!finalCanvasRef.current) {
              const errorMsg = "相框畫布未準備好。";
@@ -786,8 +807,8 @@ export default function SakuraPetFramesApp() {
 
                  const finalDataUrl = canvas.toDataURL('image/png');
                  console.log("Final image generated as Data URL.");
-                  setFinalFramedImage(finalDataUrl); // Update state here
-                  resolve();
+                  // Don't set state here, resolve the promise with the URL
+                  resolve(finalDataUrl);
             } catch (drawError) {
                  const errorMsg = "無法繪製最終寵物圖片。";
                 console.error("Error drawing processed image onto canvas:", drawError);
@@ -814,7 +835,7 @@ export default function SakuraPetFramesApp() {
              reject(new Error("Invalid processed image source"));
         }
      });
-  };
+   };
 
 
   const handleDownload = () => {
@@ -870,16 +891,23 @@ export default function SakuraPetFramesApp() {
   const showWebcam = isWebcamOpen && !capturedImage;
   // Updated condition to check selectedTags array length and animalName
    const canGenerate = !!(uploadedImage || capturedImage) && !!selectedCategory && selectedTags.length > 0 && !!apiKeys.clipdropKey && !!animalName;
+   // Use finalGcsUrl for QR code if available, otherwise fall back to finalFramedImage (Data URL)
+   const qrCodeValue = finalGcsUrl || finalFramedImage;
 
   return (
     <TooltipProvider>
       {/* Generation Overlay */}
-       {isGenerating && (
+       {(isGenerating || isUploading) && ( // Show overlay during generation AND upload
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm"
              style={{ backgroundImage: "url('/background1.png')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}>
           <div className="text-center p-8 rounded-lg bg-card/80 backdrop-blur-sm shadow-2xl max-w-md mx-auto">
-              <Loader2 className="h-16 w-16 animate-spin text-pink-500 mx-auto mb-6" />
-              <p className="text-2xl font-bold text-pink-600 mb-2 animate-pulse">{progressText || '魔法變身中...'}</p>
+              {/* Show loader or upload icon based on state */}
+              {isUploading ? (
+                  <CloudUpload className="h-16 w-16 animate-pulse text-teal-500 mx-auto mb-6" />
+              ) : (
+                  <Loader2 className="h-16 w-16 animate-spin text-pink-500 mx-auto mb-6" />
+              )}
+              <p className="text-2xl font-bold text-pink-600 mb-2 animate-pulse">{progressText || (isUploading ? '上傳緊...' : '魔法變身中...')}</p>
               {/* Enhanced Progress Bar */}
               <div className="w-full bg-gray-200 rounded-full h-4 dark:bg-gray-700 overflow-hidden shadow-inner relative border border-pink-200">
                   {/* Sparkle effect */}
@@ -904,7 +932,7 @@ export default function SakuraPetFramesApp() {
                     aria-label="Generation Progress"
                    />
               </div>
-               <p className="text-sm text-muted-foreground mt-3">{progress < 100 ? '請稍等片刻...' : '變身完成！'}</p>
+               <p className="text-sm text-muted-foreground mt-3">{progress < 100 ? '請稍等片刻...' : (finalGcsUrl ? '變身完成！相已上傳！' : (isUploading ? '上傳緊...' : '變身完成！') )}</p>
           </div>
            <style jsx>{`
                 @keyframes sparkle {
@@ -1213,13 +1241,13 @@ export default function SakuraPetFramesApp() {
                <CardContent className="flex flex-col items-center space-y-4">
                    <Button
                       onClick={handleGenerateMagic}
-                      disabled={!canGenerate || isGenerating} // Disable when generating too
+                      disabled={!canGenerate || isGenerating || isUploading} // Disable when generating or uploading
                       className={`w-full text-xl py-6 font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-teal-500 hover:from-pink-600 hover:via-purple-600 hover:to-teal-600 text-white shadow-lg rounded-full transition duration-300 ease-in-out transform hover:scale-105 active:scale-95 disabled:from-gray-400 disabled:via-gray-500 disabled:to-gray-600 disabled:scale-100 disabled:cursor-not-allowed ${canGenerate ? 'animate-subtle-pulse' : ''}`}
                     >
                       <WandSparkles className="mr-3 h-7 w-7" />
                        開始變身！ (Make Magic!)
                    </Button>
-                    {uiError && !isGenerating && (
+                    {uiError && !isGenerating && !isUploading && ( // Only show error when not busy
                        <Alert variant="destructive" className="w-full">
                           <AlertTitle>哎呀！魔法失敗咗！</AlertTitle>
                           <AlertDescription>{uiError}</AlertDescription>
@@ -1230,7 +1258,7 @@ export default function SakuraPetFramesApp() {
 
 
             {/* Step 3: Result */}
-             {(finalFramedImage || generatedStory) && !isGenerating && (
+             {(finalFramedImage || generatedStory) && !isGenerating && !isUploading && ( // Hide results during generation/upload
                <Card className="non-printable">
                    <CardHeader>
                       <CardTitle className="text-xl flex items-center gap-2"><PartyPopper size={24} className="text-green-500"/> 3. 噹噹噹噹！睇下成果 🎉</CardTitle>
@@ -1241,7 +1269,7 @@ export default function SakuraPetFramesApp() {
                           <div className="w-full max-w-[400px] md:max-w-[500px] mx-auto">
                                <Label className="text-lg font-semibold text-center block mb-2 text-pink-700">🖼️ 魔法相框:</Label>
                               <img
-                                  src={finalFramedImage}
+                                  src={finalFramedImage} // Use the local Data URL for immediate display
                                   alt={`Framed photo of ${animalName}`}
                                   width={FRAME_WIDTH}
                                   height={FRAME_HEIGHT}
@@ -1251,6 +1279,7 @@ export default function SakuraPetFramesApp() {
                                       toast({ title: "圖片載入錯誤", description: "無法顯示最終圖片。", variant: "destructive" });
                                       setUiError("無法顯示最終圖片。");
                                       setFinalFramedImage(null);
+                                      setFinalGcsUrl(null); // Clear GCS URL too if local display fails
                                    }}
                               />
                            </div>
@@ -1263,11 +1292,13 @@ export default function SakuraPetFramesApp() {
                         )}
                    </CardContent>
                    <CardFooter className="flex flex-wrap justify-center gap-3 pt-4 non-printable">
-                       {finalFramedImage && (
-                          <>
-                           <Button onClick={handleDownload} variant="secondary">
+                       {finalFramedImage && ( // Keep local download enabled even if GCS fails
+                          <Button onClick={handleDownload} variant="secondary">
                               <Download className="mr-2 h-4 w-4" /> 下載靚相
-                           </Button>
+                          </Button>
+                       )}
+                       {finalGcsUrl && ( // Only show print/QR if GCS upload was successful
+                          <>
                            <Button onClick={handlePrint} variant="secondary">
                              <Printer className="mr-2 h-4 w-4" /> 列印 (4R)
                            </Button>
@@ -1282,17 +1313,18 @@ export default function SakuraPetFramesApp() {
                                    <DialogHeader>
                                        <DialogTitle>掃描 QR Code 下載</DialogTitle>
                                        <DialogDescription>
-                                           用手機相機掃描下面嘅 QR Code 就可以下載圖片。
+                                           用手機相機掃描下面嘅 QR Code 就可以下載雲端圖片。
                                        </DialogDescription>
                                    </DialogHeader>
-                                   {finalFramedImage && finalFramedImage.length < 2953 ? ( // Check if data URL is short enough
-                                       <div className="flex justify-center py-4 bg-white p-2 rounded-md">
-                                          <QRCodeCanvas value={finalFramedImage} size={256} includeMargin={true} />
-                                       </div>
+                                   {qrCodeValue ? ( // Check if there's a value for QR code
+                                        <div className="flex justify-center py-4 bg-white p-2 rounded-md">
+                                          {/* Use finalGcsUrl for QR code */}
+                                          <QRCodeCanvas value={finalGcsUrl} size={256} includeMargin={true} />
+                                        </div>
                                    ) : (
-                                       <Alert variant="destructive" className="my-4">
+                                        <Alert variant="default" className="my-4">
                                            <AlertTitle>QR Code 無法生成</AlertTitle>
-                                           <AlertDescription>圖片檔案太大，無法直接放入QR Code。請使用下載按鈕下載。</AlertDescription>
+                                           <AlertDescription>圖片連結不存在，無法生成 QR Code。</AlertDescription>
                                        </Alert>
                                    )}
                                     <DialogFooter>
@@ -1323,8 +1355,8 @@ export default function SakuraPetFramesApp() {
            </CardFooter>
         </Card>
 
-         {/* Image for Printing */}
-         {finalFramedImage && (
+         {/* Image for Printing - Use finalFramedImage (local) or finalGcsUrl */}
+         {finalFramedImage && ( // Use local image for print consistency
              <div className="hidden printable-area">
                  <img src={finalFramedImage} alt={`Printable framed photo of ${animalName}`} />
              </div>

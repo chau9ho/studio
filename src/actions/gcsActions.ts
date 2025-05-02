@@ -4,6 +4,7 @@
  * @fileOverview Server actions for interacting with Google Cloud Storage.
  */
 import { Storage } from '@google-cloud/storage';
+import { randomUUID } from 'crypto'; // For generating unique filenames
 
 // Load credentials if the environment variable is set
 let storageConfig = {};
@@ -15,6 +16,7 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
 }
 
 const BUCKET_NAME = 'motherday'; // The GCS bucket name
+const OUTPUT_FOLDER_PREFIX = 'motherday/Output/PET/'; // Target folder for framed images
 
 // Initialize GCS client.
 // For local development, ensure GOOGLE_APPLICATION_CREDENTIALS env var is set.
@@ -48,17 +50,20 @@ export async function listPetImages(animalName: string): Promise<string[]> {
         return []; // Return empty array if animalName is invalid
     }
 
-    const prefix = `${animalName.trim()}_`; // Use trimmed name and add underscore
+     // Use the raw animalName as the prefix for searching user uploads, not the output folder
+    const searchPrefix = `${animalName.trim()}_`;
 
-    console.log(`Listing images in bucket '${BUCKET_NAME}' with prefix '${prefix}'...`);
+    console.log(`Listing images in bucket '${BUCKET_NAME}' with prefix '${searchPrefix}' (excluding output folder)...`);
 
     try {
-        const [files] = await storage.bucket(BUCKET_NAME).getFiles({ prefix });
+        const [files] = await storage.bucket(BUCKET_NAME).getFiles({ prefix: searchPrefix });
 
-        console.log(`Found ${files.length} files matching prefix '${prefix}'.`);
+        console.log(`Found ${files.length} files matching prefix '${searchPrefix}'.`);
 
-        // Filter out potential "directory" objects if using prefixes that simulate folders
-        const imageFiles = files.filter(file => !file.name.endsWith('/'));
+        // Filter out potential "directory" objects and files inside the OUTPUT_FOLDER_PREFIX
+        const imageFiles = files.filter(file =>
+            !file.name.endsWith('/') && !file.name.startsWith(OUTPUT_FOLDER_PREFIX)
+        );
 
          // Sort files by creation time, newest first
         imageFiles.sort((a, b) => {
@@ -69,10 +74,10 @@ export async function listPetImages(animalName: string): Promise<string[]> {
 
 
         const urls = imageFiles.map(file => `https://storage.googleapis.com/${BUCKET_NAME}/${file.name}`);
-        console.log(`Returning URLs: ${JSON.stringify(urls)}`);
+        console.log(`Returning URLs for selection: ${JSON.stringify(urls)}`);
         return urls;
     } catch (error: any) {
-        console.error(`Error listing files in GCS bucket '${BUCKET_NAME}' with prefix '${prefix}':`, error);
+        console.error(`Error listing files in GCS bucket '${BUCKET_NAME}' with prefix '${searchPrefix}':`, error);
         // Check for specific permission errors
         if (error.code === 403) {
              console.error("Permission denied accessing GCS bucket. Ensure the service account has 'roles/storage.objectViewer' or similar.");
@@ -99,33 +104,132 @@ export async function listPetImages(animalName: string): Promise<string[]> {
  * @throws {Error} If fetching or conversion fails.
  */
 export async function fetchGcsImageAsDataUrl(imageUrl: string): Promise<string> {
+    if (!storage) { // Added check for storage initialization
+        throw new Error("Google Cloud Storage client is not initialized. Check server logs.");
+    }
     if (!imageUrl || !imageUrl.startsWith('https://storage.googleapis.com/')) {
         throw new Error("Invalid GCS image URL provided.");
     }
 
-    console.log(`Fetching GCS image from URL: ${imageUrl}`);
+    // Extract bucket name and file path from URL
+    const urlParts = new URL(imageUrl);
+    const pathParts = urlParts.pathname.split('/');
+    const bucketName = pathParts[1]; // First part after the slash is the bucket name
+    const filePath = pathParts.slice(2).join('/'); // The rest is the file path
+
+    if (!bucketName || !filePath) {
+         throw new Error("Could not parse bucket name or file path from URL.");
+    }
+
+    console.log(`Fetching GCS image from bucket '${bucketName}', path '${filePath}'`);
+
     try {
-        const response = await fetch(imageUrl);
+        // Use the GCS client library to download the file content
+        const [fileContent] = await storage.bucket(bucketName).file(filePath).download();
 
-        if (!response.ok) {
-            throw new Error(`Failed to fetch image from GCS: ${response.status} ${response.statusText}`);
-        }
+        // Get metadata to determine content type
+        const [metadata] = await storage.bucket(bucketName).file(filePath).getMetadata();
+        const contentType = metadata.contentType || 'image/png'; // Default to png if not set
 
-        const blob = await response.blob();
-
-        if (!blob || !blob.type.startsWith('image/')) {
-            throw new Error(`Invalid content type received from GCS: ${blob?.type}`);
-        }
-
-        // Convert Blob to Buffer, then to Base64 Data URL
-        const buffer = Buffer.from(await blob.arrayBuffer());
-        const dataUrl = `data:${blob.type};base64,${buffer.toString('base64')}`;
+        // Convert Buffer to Base64 Data URL
+        const dataUrl = `data:${contentType};base64,${fileContent.toString('base64')}`;
 
         console.log(`Successfully fetched and converted GCS image to Data URL (size: ${dataUrl.length} chars).`);
         return dataUrl;
 
     } catch (error: any) {
         console.error(`Error fetching or converting GCS image from URL (${imageUrl}):`, error);
-        throw new Error(`Failed to process GCS image: ${error.message || 'Unknown error'}`);
+         // Check for specific permission errors
+        if (error.code === 403) {
+             console.error("Permission denied fetching GCS object. Ensure the service account has 'roles/storage.objectViewer' or similar.");
+             throw new Error("Permission denied fetching image from Google Cloud Storage.");
+        }
+         if (error.code === 404) {
+             console.error(`File '${filePath}' not found in bucket '${bucketName}'.`);
+             throw new Error(`Image not found in storage: ${filePath}`);
+         }
+          if (error.message?.includes('Could not refresh access token')) {
+              console.error("Authentication error: Could not refresh access token during fetch. Verify GOOGLE_APPLICATION_CREDENTIALS or ADC setup.");
+              throw new Error("Authentication error accessing Google Cloud Storage. Please check server credentials setup.");
+          }
+        throw new Error(`Failed to process GCS image: ${error.message || 'Unknown GCS error'}`);
+    }
+}
+
+
+/**
+ * Uploads a framed image (as a Base64 Data URL) to Google Cloud Storage.
+ *
+ * @param dataUrl The Base64 Data URL of the image to upload.
+ * @param animalName The name of the animal, used for generating the filename.
+ * @returns A promise that resolves to the public URL of the uploaded image.
+ * @throws {Error} If the upload fails or the GCS client is not initialized.
+ */
+export async function uploadFramedImageToGcs(dataUrl: string, animalName: string): Promise<string> {
+    if (!storage) {
+        throw new Error("Google Cloud Storage client is not initialized. Check server logs.");
+    }
+    if (!dataUrl || !dataUrl.startsWith('data:image/')) {
+        throw new Error("Invalid Data URL provided for upload.");
+    }
+     if (!animalName || typeof animalName !== 'string' || animalName.trim() === '') {
+        // Use a default name if none provided, but log a warning
+        console.warn("uploadFramedImageToGcs called with empty or invalid animalName. Using 'unknown_pet'.");
+        animalName = 'unknown_pet';
+    }
+
+    // Extract image data and type from Data URL
+    const matches = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+        throw new Error("Could not parse Data URL.");
+    }
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, 'base64');
+    const fileExtension = mimeType.split('/')[1] || 'png'; // Default to png
+
+    // Generate a unique filename: animalName + randomUUID + extension
+    const uniqueId = randomUUID().replace(/-/g, ''); // Remove hyphens for cleaner name
+    const fileName = `${animalName.trim()}_${uniqueId}.${fileExtension}`;
+    const filePath = `${OUTPUT_FOLDER_PREFIX}${fileName}`; // Include the target folder path
+
+    console.log(`Uploading framed image to GCS: Bucket='${BUCKET_NAME}', Path='${filePath}'`);
+
+    const file = storage.bucket(BUCKET_NAME).file(filePath);
+
+    try {
+        // Upload the buffer
+        await file.save(buffer, {
+            metadata: {
+                contentType: mimeType,
+                // Optional: Add custom metadata if needed
+                // metadata: { source: 'SakuraPetFramesApp' }
+            },
+            // Ensure the file is resumable for robustness, especially for larger files
+            resumable: true,
+        });
+
+        console.log(`File uploaded successfully to ${filePath}. Making public...`);
+
+        // Make the file publicly readable
+        await file.makePublic();
+
+        const publicUrl = `https://storage.googleapis.com/${BUCKET_NAME}/${filePath}`;
+        console.log(`File is now public at: ${publicUrl}`);
+
+        return publicUrl;
+
+    } catch (error: any) {
+        console.error(`Error uploading file to GCS path '${filePath}':`, error);
+         // Check for specific permission errors
+        if (error.code === 403) {
+             console.error("Permission denied writing to GCS bucket/path. Ensure the service account has 'roles/storage.objectCreator' or 'roles/storage.objectAdmin'.");
+             throw new Error("Permission denied uploading image to Google Cloud Storage. Check server configuration.");
+        }
+         if (error.message?.includes('Could not refresh access token')) {
+             console.error("Authentication error: Could not refresh access token during upload. Verify GOOGLE_APPLICATION_CREDENTIALS or ADC setup.");
+            throw new Error("Authentication error uploading to Google Cloud Storage. Please check server credentials setup.");
+         }
+        throw new Error(`Failed to upload image to Google Cloud Storage: ${error.message || 'Unknown GCS error'}`);
     }
 }
