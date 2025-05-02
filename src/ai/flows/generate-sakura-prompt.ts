@@ -25,13 +25,8 @@
 
  export async function generateSakuraPrompt(input: GenerateSakuraPromptInput): Promise<GenerateSakuraPromptOutput> {
     try {
-      // Check if the specific model needed is available
-      const models = await ai.listModels();
-      const requiredModel = 'googleai/gemini-2.0-flash'; // Or whichever model this prompt uses
-      if (!models.includes(requiredModel)) {
-        console.error(`Required model ${requiredModel} not available or configured.`);
-        throw new Error(`AI model (${requiredModel}) is not available or configured. Please check your API key and configuration.`);
-      }
+      // Removed the ai.listModels() check as it's not the correct way in Genkit 1.x
+      // The prompt execution itself will handle model availability errors.
 
       return await generateSakuraPromptFlow(input);
     } catch (error: any) {
@@ -45,6 +40,10 @@
         } else if (error.message && (error.message.includes("AI model is not configured") || error.message.includes("not available"))) {
             // Catch the specific error thrown previously if still relevant
             throw new Error(error.message);
+        } else if (error.message && error.message.includes("ai.listModels is not a function")) {
+            // Specific catch for this error - although the call is removed, keep for safety/debugging
+             console.error("ai.listModels function not found. This might indicate a Genkit version mismatch or initialization issue.");
+             throw new Error("AI configuration error: Unable to list available models. Please check the setup.");
         }
        // Re-throw other errors
        throw new Error(`Failed to generate prompt: ${error.message || 'Unknown AI error'}`);
