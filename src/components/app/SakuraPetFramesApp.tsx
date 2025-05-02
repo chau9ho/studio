@@ -2,14 +2,13 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import Image from 'next/image'; // Keep for potential future use, but using <img> for dynamic src
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Progress } from "@/components/ui/progress"; // Added Progress
-import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X } from 'lucide-react'; // Updated icons
+import { Progress } from "@/components/ui/progress";
+import { Loader2, Camera, Upload, Download, WandSparkles, Save, RotateCcw, X } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -45,6 +44,9 @@ const TARGET_CONTENT_WIDTH = 1441; // Max width constraint for the pet photo
 const TARGET_CONTENT_HEIGHT = 1369; // Max height constraint for the pet photo
 const TARGET_CONTENT_START_Y = 610; // Y position where the pet image content should start
 
+// ClipDrop dimension limit (set slightly lower for safety)
+const MAX_IMAGE_DIMENSION = 2000;
+
 
 export default function SakuraPetFramesApp() {
   const { toast } = useToast();
@@ -54,25 +56,23 @@ export default function SakuraPetFramesApp() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null); // Base64 Data URL
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  // Removed generatedPrompt state, will be generated on the fly
-  // Removed animalDescription state, will be generated on the fly
   const [generatedStory, setGeneratedStory] = useState<string>('');
-  // Removed processedImage state, intermediate step
   const [finalFramedImage, setFinalFramedImage] = useState<string | null>(null); // Base64 Data URL
-  const [isGenerating, setIsGenerating] = useState<boolean>(false); // Simplified loading state
-  const [progress, setProgress] = useState<number>(0); // Progress state
-  const [uiError, setUiError] = useState<string | null>(null); // State for UI errors
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [progress, setProgress] = useState<number>(0);
+  const [progressText, setProgressText] = useState<string>(''); // Added state for progress text
+  const [uiError, setUiError] = useState<string | null>(null);
 
   const [isWebcamOpen, setIsWebcamOpen] = useState<boolean>(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null); // null = pending, true = granted, false = denied
-  const [currentObjectUrl, setCurrentObjectUrl] = useState<string | null>(null); // To manage object URL lifecycle
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const [currentObjectUrl, setCurrentObjectUrl] = useState<string | null>(null);
 
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const finalCanvasRef = useRef<HTMLCanvasElement>(null);
-  const frameImageRef = useRef<HTMLImageElement | null>(null); // Ref for the frame image
+  const canvasRef = useRef<HTMLCanvasElement>(null); // Used for webcam capture and potential resize
+  const finalCanvasRef = useRef<HTMLCanvasElement>(null); // Used for framing
+  const frameImageRef = useRef<HTMLImageElement | null>(null);
 
    // Cleanup Object URL when component unmounts or image changes
    useEffect(() => {
@@ -98,25 +98,23 @@ export default function SakuraPetFramesApp() {
         setAnimalName(parsedKeys.animalName || '');
       } catch (error) {
         console.error("Failed to parse stored API keys:", error);
-        localStorage.removeItem('sakuraPetFramesKeys'); // Clear corrupted data
+        localStorage.removeItem('sakuraPetFramesKeys');
         toast({ title: "Error", description: "Could not load saved settings. Cleared potentially corrupted data.", variant: "destructive" });
       }
     }
-     // Preload the frame image
     const frameImg = new window.Image();
-    frameImg.src = '/frame.png'; // Assuming frame.png is in the public folder
+    frameImg.src = '/frame.png';
     frameImg.onload = () => {
         frameImageRef.current = frameImg;
         console.log("Frame image loaded");
     };
-     frameImg.onerror = (e) => {
+    frameImg.onerror = (e) => { // Use 'e' for the event object
         console.error("Failed to load frame image from /frame.png.", e);
-        // Ensure toast is available before calling
         if (toast) {
           toast({ title: "Error", description: "Failed to load the frame image from /public/frame.png. Please ensure it exists.", variant: "destructive" });
         }
     };
-  }, [toast]); // Add toast to dependency array if used inside
+  }, [toast]);
 
   // Save API keys and animal name to localStorage
   const handleSaveKeys = () => {
@@ -139,14 +137,12 @@ export default function SakuraPetFramesApp() {
       setSelectedTag(null);
       setUiError(null);
       setProgress(0);
-      setIsGenerating(false); // Ensure loading is reset
+      setProgressText('');
+      setIsGenerating(false);
       if (currentObjectUrl) {
         URL.revokeObjectURL(currentObjectUrl);
         setCurrentObjectUrl(null);
       }
-       // Optionally clear name and key, or keep them
-      // setAnimalName('');
-      // setApiKeys({ clipdropKey: '' });
       console.log("All states cleared.");
   };
 
@@ -158,9 +154,8 @@ export default function SakuraPetFramesApp() {
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
-       clearAllStates(); // Reset everything on new upload
+       clearAllStates();
        const file = event.target.files[0];
-       // Basic validation for image type
         if (!file.type.startsWith('image/')) {
             toast({ title: "Invalid File", description: "Please upload a valid image file.", variant: "destructive" });
             return;
@@ -172,8 +167,8 @@ export default function SakuraPetFramesApp() {
   };
 
   const startWebcam = async () => {
-     setHasCameraPermission(null); // Set to pending
-     setUiError(null); // Clear previous errors
+     setHasCameraPermission(null);
+     setUiError(null);
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
       setStream(mediaStream);
@@ -199,7 +194,6 @@ export default function SakuraPetFramesApp() {
         videoRef.current.srcObject = null;
       }
       setIsWebcamOpen(false);
-      // Do not reset permission status here, user might just be closing the preview
     }
   }, [stream]);
 
@@ -214,9 +208,9 @@ export default function SakuraPetFramesApp() {
       if (context) {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/png');
-        clearAllStates(); // Reset everything on new capture
+        clearAllStates();
         setCapturedImage(dataUrl);
-        stopWebcam(); // Close webcam after capture
+        stopWebcam();
       } else {
          console.error("Failed to get canvas context for capture");
           toast({ title: "Capture Error", description: "Could not capture image from webcam.", variant: "destructive" });
@@ -239,7 +233,6 @@ export default function SakuraPetFramesApp() {
         resolve(capturedImage);
       } else if (uploadedImage) {
         try {
-            // Convert File (Blob) to Data URL
             const dataUrl = await blobToDataUrl(uploadedImage);
             resolve(dataUrl);
         } catch (error) {
@@ -254,50 +247,110 @@ export default function SakuraPetFramesApp() {
     });
   };
 
-  const getCurrentImageAsBlob = (): Promise<Blob | null> => {
-     return new Promise(async (resolve, reject) => {
-        if (capturedImage) {
-            try {
-                const blob = await dataUrlToBlob(capturedImage);
-                resolve(blob);
-            } catch (error) {
-                console.error("Error converting captured image Data URL to Blob:", error);
-                toast({ title: "Image Error", description: "Could not process captured image.", variant: "destructive" });
-                setUiError("Could not process captured image.");
-                reject(new Error("Could not process captured image."));
-            }
-        } else if (uploadedImage) {
-           resolve(uploadedImage); // It's already a File (which is a Blob)
-        } else {
-            resolve(null);
+   // Helper function to resize image if needed
+   const resizeImageIfNeeded = (
+    imageDataUrl: string,
+    maxDimension: number
+  ): Promise<{ resizedDataUrl: string; resizedBlob: Blob }> => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      img.onload = async () => {
+        const { naturalWidth: width, naturalHeight: height } = img;
+        console.log(`Original image dimensions: ${width}x${height}`);
+
+        if (width <= maxDimension && height <= maxDimension) {
+          console.log("Image is within size limits, no resize needed.");
+          try {
+            const blob = await dataUrlToBlob(imageDataUrl);
+            resolve({ resizedDataUrl: imageDataUrl, resizedBlob: blob });
+          } catch (error) {
+            reject(new Error("Failed to convert original Data URL to Blob."));
+          }
+          return;
         }
-     });
+
+        console.log("Image exceeds size limits, resizing...");
+        setProgressText("張相太大喇，縮細緊..."); // Update progress text
+
+        let newWidth = width;
+        let newHeight = height;
+        const ratio = width / height;
+
+        if (width > maxDimension) {
+          newWidth = maxDimension;
+          newHeight = newWidth / ratio;
+        }
+
+        if (newHeight > maxDimension) {
+          newHeight = maxDimension;
+          newWidth = newHeight * ratio;
+        }
+
+        newWidth = Math.floor(newWidth);
+        newHeight = Math.floor(newHeight);
+
+        console.log(`New image dimensions: ${newWidth}x${newHeight}`);
+
+        if (!canvasRef.current) {
+            return reject(new Error("Resize canvas is not available."));
+        }
+        const canvas = canvasRef.current; // Reuse capture canvas
+        canvas.width = newWidth;
+        canvas.height = newHeight;
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+          return reject(new Error("Could not get canvas context for resizing."));
+        }
+
+        try {
+          ctx.drawImage(img, 0, 0, newWidth, newHeight);
+          const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.9); // Use JPEG for potentially smaller size
+          console.log("Image resized successfully.");
+          const resizedBlob = await dataUrlToBlob(resizedDataUrl);
+          resolve({ resizedDataUrl, resizedBlob });
+        } catch (error: any) {
+           console.error("Error resizing image:", error);
+           reject(new Error(`Failed to resize image: ${error.message || error}`));
+        }
+      };
+      img.onerror = (e) => {
+        console.error("Failed to load image for resizing check:", e);
+        reject(new Error("Failed to load image for resizing check."));
+      };
+       if (imageDataUrl && typeof imageDataUrl === 'string' && imageDataUrl.startsWith('data:image')) {
+            img.src = imageDataUrl;
+       } else {
+            reject(new Error("Invalid image source provided for resizing check."));
+       }
+    });
   };
 
   const handleGenerateMagic = async () => {
-    setUiError(null); // Clear previous errors
+    setUiError(null);
     setProgress(0);
+    setProgressText('');
     setIsGenerating(true);
     setFinalFramedImage(null);
     setGeneratedStory('');
 
-    // --- 1. Get Image Data ---
-    let imageBlob: Blob | null = null;
-    let imageDataUrl: string | null = null;
+    // --- 1. Get Initial Image Data ---
+    let initialImageDataUrl: string | null = null;
     try {
-        imageBlob = await getCurrentImageAsBlob();
-        imageDataUrl = await getCurrentImageAsDataUrl(); // Also needed for vision
+        initialImageDataUrl = await getCurrentImageAsDataUrl();
     } catch (error: any) {
         setIsGenerating(false);
         // Error already set in helper functions
         return;
     }
-    if (!imageBlob || !imageDataUrl) {
+    if (!initialImageDataUrl) {
         toast({ title: "No Image", description: "Please upload or capture an image first.", variant: "destructive" });
         setUiError("Please upload or capture an image first.");
         setIsGenerating(false);
         return;
     }
+
+    // --- Basic Input Checks ---
      if (!selectedCategory || !selectedTag) {
       toast({ title: "Missing Selection", description: "Please select a category and tag.", variant: "destructive" });
       setUiError("Please select a category and tag.");
@@ -318,9 +371,26 @@ export default function SakuraPetFramesApp() {
      }
 
     try {
-        setProgress(10); // Initial progress
+        setProgress(5);
+        setProgressText("準備緊魔法材料...");
+
+        // --- 1b. Resize Image If Needed ---
+        console.log("Checking image size...");
+        let resizedResult;
+        try {
+             resizedResult = await resizeImageIfNeeded(initialImageDataUrl, MAX_IMAGE_DIMENSION);
+        } catch(error: any) {
+            console.error("Error during image resize check:", error);
+            toast({ title: "Image Processing Error", description: `Could not process image: ${error.message}`, variant: "destructive" });
+            setUiError(`圖片處理出錯: ${error.message}`);
+            setIsGenerating(false);
+            return;
+        }
+        const { resizedDataUrl: finalImageDataUrl, resizedBlob: finalImageBlob } = resizedResult;
 
         // --- 2. Generate Background Prompt ---
+        setProgress(10);
+        setProgressText("諗緊個靚背景...");
         console.log("Generating background prompt...");
         let promptResult;
         try {
@@ -335,10 +405,11 @@ export default function SakuraPetFramesApp() {
         console.log("Background prompt generated:", bgPrompt);
 
         // --- 3. Analyze Animal Features ---
+        setProgressText("睇緊你隻寵物有幾得意...");
         console.log("Analyzing animal features...");
         let analysisResult;
         try {
-             analysisResult = await analyzeAnimalFeatures({ photoDataUri: imageDataUrl });
+             analysisResult = await analyzeAnimalFeatures({ photoDataUri: finalImageDataUrl }); // Use potentially resized data URL
              if (!analysisResult || !analysisResult.animalDescription) throw new Error("Empty response from animal analysis");
         } catch (error: any) {
             console.error("Error analyzing animal:", error);
@@ -349,6 +420,7 @@ export default function SakuraPetFramesApp() {
         console.log("Animal description generated:", animalDesc);
 
         // --- 4. Generate Cantonese Story ---
+        setProgressText("作緊故仔...");
          console.log("Generating story...");
          let storyResult;
          try {
@@ -367,10 +439,11 @@ export default function SakuraPetFramesApp() {
          console.log("Story generated.");
 
         // --- 5. Replace Background (ClipDrop) ---
+        setProgressText("施展緊背景魔法...");
         console.log("Replacing background via ClipDrop...");
         let clipdropResponse;
         try {
-             clipdropResponse = await replaceBackground(imageBlob, bgPrompt, apiKeys.clipdropKey);
+             clipdropResponse = await replaceBackground(finalImageBlob, bgPrompt, apiKeys.clipdropKey); // Use potentially resized Blob
              if (!clipdropResponse || !clipdropResponse.image) throw new Error("Invalid response from ClipDrop");
         } catch (error: any) {
              console.error("Error processing image with ClipDrop:", error);
@@ -384,11 +457,13 @@ export default function SakuraPetFramesApp() {
         console.log("Background replaced.");
 
         // --- 6. Frame Image ---
+        setProgressText("加緊個靚相框...");
         console.log("Framing image...");
         await frameImage(processedImageDataUrl); // frameImage handles its own errors and final state setting
         setProgress(100);
+        setProgressText('魔法完成! ✨');
         console.log("Magic complete!");
-        toast({ title: "✨ Magic Complete!", description: "Your Sakura Pet Frame is ready!" });
+        toast({ title: "✨ 魔法相框變身完成 ✨", description: "快啲睇下你嘅寵物靚相啦！" });
 
     } catch (error: any) {
         console.error("Error during generation process:", error);
@@ -397,19 +472,16 @@ export default function SakuraPetFramesApp() {
         if (!uiError) { // Only set UI error if not already set (e.g., by ClipDrop specific handler)
             setUiError(`唔好意思, 出咗啲問題: ${displayError}. 請一陣再試啦。`);
         }
-        toast({ title: "Generation Failed", description: displayError, variant: "destructive" });
+        toast({ title: "變身失敗", description: displayError, variant: "destructive" });
+        setProgressText('魔法失敗咗...😢'); // Update progress text on failure
     } finally {
         setIsGenerating(false);
         // Don't reset progress to 0 immediately, let the user see it completed or failed at 100%
-        // setProgress(0);
     }
   };
 
 
    const frameImage = (processedImageSrc: string): Promise<void> => {
-     // Ensure this function sets the finalFramedImage state on success
-     // and handles its internal errors, possibly setting uiError if needed.
-     // It should resolve the promise on success and reject on failure.
      return new Promise<void>((resolve, reject) => {
         console.log("Starting image framing process...");
         if (!finalCanvasRef.current) {
@@ -427,7 +499,6 @@ export default function SakuraPetFramesApp() {
              return;
          }
 
-
         const canvas = finalCanvasRef.current;
         const ctx = canvas.getContext('2d');
         const frameImg = frameImageRef.current;
@@ -440,12 +511,10 @@ export default function SakuraPetFramesApp() {
              return;
         }
 
-        // Set canvas dimensions to the frame dimensions
         canvas.width = FRAME_WIDTH;
         canvas.height = FRAME_HEIGHT;
         console.log(`Canvas dimensions set to ${FRAME_WIDTH}x${FRAME_HEIGHT}`);
 
-        // Draw the frame image first, covering the entire canvas
          try {
              ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
              console.log("Frame image drawn onto canvas.");
@@ -457,60 +526,50 @@ export default function SakuraPetFramesApp() {
               return;
          }
 
-
-        // Now load and draw the processed pet image on top
         console.log("Loading processed image for drawing...");
         const processedImg = new window.Image();
         processedImg.onload = () => {
              console.log(`Processed image loaded: ${processedImg.naturalWidth}x${processedImg.naturalHeight}`);
-            // Calculate the target area for the pet image
+
             const targetWidth = TARGET_CONTENT_WIDTH;
             const targetHeight = TARGET_CONTENT_HEIGHT;
-            const targetX = (FRAME_WIDTH - targetWidth) / 2; // Center horizontally within the frame
+            const targetX = (FRAME_WIDTH - targetWidth) / 2;
             const targetY = TARGET_CONTENT_START_Y;
 
-             // Calculate scaling based on fitting *within* the target dimensions
-             let drawWidth = processedImg.naturalWidth;
-             let drawHeight = processedImg.naturalHeight;
-             const aspectRatio = drawWidth / drawHeight;
+             let drawWidth, drawHeight;
+             const imgRatio = processedImg.naturalWidth / processedImg.naturalHeight;
              const targetRatio = targetWidth / targetHeight;
 
-             if (aspectRatio > targetRatio) {
-                 // Image is wider than target area proportionaly, fit to width
+             // Fit image within target dimensions while maintaining aspect ratio
+             if (imgRatio > targetRatio) {
+                 // Image is wider than target proportionally, fit to width
                  drawWidth = targetWidth;
-                 drawHeight = drawWidth / aspectRatio;
+                 drawHeight = drawWidth / imgRatio;
              } else {
-                 // Image is taller than target area proportionaly, fit to height
+                 // Image is taller than target proportionally (or same ratio), fit to height
                  drawHeight = targetHeight;
-                 drawWidth = drawHeight * aspectRatio;
+                 drawWidth = drawHeight * imgRatio;
              }
 
-
-             // Clamp calculated dimensions to ensure they don't exceed target bounds (extra safety)
+             // Ensure dimensions do not exceed the target box (shouldn't happen with logic above, but safe)
              drawWidth = Math.min(drawWidth, targetWidth);
              drawHeight = Math.min(drawHeight, targetHeight);
 
+             // Calculate position to center the image within the target area
+             const drawX = targetX + (targetWidth - drawWidth) / 2;
+             const drawY = targetY + (targetHeight - drawHeight) / 2;
 
-            // Calculate position to center the scaled image within the target area
-            const drawX = targetX + (targetWidth - drawWidth) / 2;
-            const drawY = targetY + (targetHeight - drawHeight) / 2;
-
-            console.log(`Target draw dimensions: ${targetWidth}x${targetHeight}`);
+            console.log(`Target area: ${targetWidth}x${targetHeight} at X=${targetX}, Y=${targetY}`);
             console.log(`Calculated draw dimensions (scaled): ${drawWidth}x${drawHeight}`);
             console.log(`Calculated draw position: X=${drawX}, Y=${drawY}`);
 
-
             try {
-                 // Draw the scaled and positioned processed image
                  ctx.drawImage(processedImg, drawX, drawY, drawWidth, drawHeight);
                  console.log("Processed image drawn onto canvas.");
-
-                 // Frame is already drawn underneath
 
                  const finalDataUrl = canvas.toDataURL('image/png');
                  console.log("Final image generated as Data URL.");
                   setFinalFramedImage(finalDataUrl); // Update state here
-                  // Toast is handled in handleGenerateMagic
                   resolve();
             } catch (drawError) {
                 console.error("Error drawing processed image onto canvas:", drawError);
@@ -525,7 +584,6 @@ export default function SakuraPetFramesApp() {
             setUiError("Failed to load processed image for framing.");
             reject(new Error("Failed to load processed image"));
         };
-        // Ensure the src is valid before assigning
         if (processedImageSrc && typeof processedImageSrc === 'string' && processedImageSrc.startsWith('data:image')) {
             console.log("Assigning processed image source to Image object.");
             processedImg.src = processedImageSrc;
@@ -549,9 +607,9 @@ export default function SakuraPetFramesApp() {
         const link = document.createElement('a');
         link.download = `${animalName || 'sakura_pet'}_frame.png`;
         link.href = finalFramedImage;
-        document.body.appendChild(link); // Required for Firefox
+        document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link); // Clean up
+        document.body.removeChild(link);
     } catch (error) {
          console.error("Error creating download link:", error);
          toast({ title: "Download Error", description: "Could not initiate image download.", variant: "destructive" });
@@ -562,25 +620,25 @@ export default function SakuraPetFramesApp() {
   // Derive current image source for preview, preferring captured, then uploaded (via Object URL)
   const previewImageSrc = capturedImage || currentObjectUrl;
   const showWebcam = isWebcamOpen && !capturedImage;
-  const canGenerate = !!previewImageSrc && !!selectedCategory && !!selectedTag && !!apiKeys.clipdropKey && !!animalName;
+  const canGenerate = !!(uploadedImage || capturedImage) && !!selectedCategory && !!selectedTag && !!apiKeys.clipdropKey && !!animalName;
 
   return (
     <div className="container mx-auto p-4 max-w-4xl">
-      <Card className="w-full shadow-lg">
+      <Card className="w-full shadow-lg overflow-hidden"> {/* Added overflow hidden */}
         <CardHeader>
           <CardTitle className="text-3xl font-bold text-center text-primary flex items-center justify-center gap-2">
             🌸 Montara 櫻花寵物魔法相框
           </CardTitle>
           <CardDescription className="text-center">
-            上傳寵物相片，揀個靚景，即刻變身櫻花主題靚相！
+             上傳寵物相片，揀個靚景，即刻變身櫻花主題靚相！(Powered by ClipDrop & Genkit)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* API Keys and Animal Name */}
+          {/* Simplified Setup */}
           <Card>
              <CardHeader>
                  <CardTitle className="text-xl">基本設定</CardTitle>
-                 <CardDescription>輸入 ClipDrop API key 同寵物名 (會儲存係你部機度)</CardDescription>
+                 <CardDescription>入咗一次就唔駛再入㗎喇</CardDescription>
              </CardHeader>
              <CardContent className="space-y-4">
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -617,7 +675,7 @@ export default function SakuraPetFramesApp() {
               </CardFooter>
           </Card>
 
-          {/* Image Input */}
+          {/* Step 1: Upload or Capture */}
           <Card>
              <CardHeader>
                 <CardTitle className="text-xl">1. 上載或拍攝寵物相片</CardTitle>
@@ -630,7 +688,7 @@ export default function SakuraPetFramesApp() {
                      </TabsList>
                      <TabsContent value="upload">
                          <div className="space-y-2">
-                            <Label htmlFor="picture">揀選相片檔案</Label>
+                            <Label htmlFor="picture">揀選相片檔案 (建議 2000x2000px 以下)</Label>
                             <Input id="picture" type="file" accept="image/*" onChange={handleImageUpload} disabled={isGenerating} />
                          </div>
                      </TabsContent>
@@ -641,7 +699,6 @@ export default function SakuraPetFramesApp() {
                                     <Camera className="mr-2 h-4 w-4" /> 開啟鏡頭
                                 </Button>
                              )}
-                             {/* Always render video tag to avoid race conditions */}
                               <div className={`relative aspect-video bg-muted rounded-md overflow-hidden ${!showWebcam ? 'hidden' : ''}`}>
                                   <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
                                    {isWebcamOpen && (
@@ -655,8 +712,6 @@ export default function SakuraPetFramesApp() {
                                         </div>
                                    )}
                               </div>
-
-                            {/* Show permission status/errors */}
                              {hasCameraPermission === false && (
                                  <Alert variant="destructive">
                                     <AlertTitle>鏡頭權限被拒</AlertTitle>
@@ -665,11 +720,11 @@ export default function SakuraPetFramesApp() {
                                     </AlertDescription>
                                 </Alert>
                              )}
-                             {hasCameraPermission === null && isWebcamOpen && ( // Show only if webcam button was clicked
+                             {hasCameraPermission === null && isWebcamOpen && (
                                  <p className="text-sm text-muted-foreground">要求鏡頭權限中...</p>
                              )}
-
-                            <canvas ref={canvasRef} className="hidden"></canvas> {/* Hidden canvas for capture */}
+                            {/* Canvas for webcam capture AND resizing */}
+                            <canvas ref={canvasRef} className="hidden"></canvas>
                          </div>
                      </TabsContent>
                  </Tabs>
@@ -677,19 +732,17 @@ export default function SakuraPetFramesApp() {
                   {previewImageSrc && (
                      <div className="mt-4">
                          <Label>預覽:</Label>
-                         {/* Use standard img tag for Object URLs and Data URLs */}
                          <img
                             src={previewImageSrc}
                             alt="已上載或拍攝的寵物相"
                             width={300}
                             height={225}
-                            className="rounded-md border mt-1 object-cover bg-muted" // Added bg-muted for loading/error state
+                            className="rounded-md border mt-1 object-cover bg-muted"
                             data-ai-hint="pet animal"
                              onError={(e) => {
                                 console.error("Error loading preview image:", e);
                                 toast({ title: "圖片載入錯誤", description: "無法顯示預覽圖片。", variant: "destructive" });
                                 setUiError("無法顯示預覽圖片。");
-                                // Optionally clear the broken source
                                 if (previewImageSrc === currentObjectUrl) setCurrentObjectUrl(null);
                                 if (previewImageSrc === capturedImage) setCapturedImage(null);
                              }}
@@ -700,7 +753,7 @@ export default function SakuraPetFramesApp() {
           </Card>
 
 
-          {/* Category and Tag Selection */}
+          {/* Step 2: Select Style */}
            <Card>
             <CardHeader>
                 <CardTitle className="text-xl">2. 選擇背景風格</CardTitle>
@@ -735,29 +788,33 @@ export default function SakuraPetFramesApp() {
             </CardContent>
           </Card>
 
-          {/* Generate Button */}
+          {/* Step 3: Generate */}
           <Card>
              <CardHeader>
                 <CardTitle className="text-xl">3. 開始變身！</CardTitle>
              </CardHeader>
              <CardContent className="space-y-4">
-                 <Button onClick={handleGenerateMagic} disabled={!canGenerate || isGenerating} className="w-full text-lg py-6">
+                 <Button onClick={handleGenerateMagic} disabled={!canGenerate || isGenerating} className="w-full text-lg py-6 bg-gradient-to-r from-pink-500 to-teal-500 hover:from-pink-600 hover:to-teal-600 text-white shadow-lg transition duration-300 ease-in-out transform hover:scale-105 disabled:from-pink-300 disabled:to-teal-300 disabled:scale-100">
                     {isGenerating ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <WandSparkles className="mr-2 h-6 w-6" />}
-                    {isGenerating ? '魔法施展中...' : '開始合成靚相'}
+                    {isGenerating ? '魔法施展中...' : '開始變身魔法'}
                  </Button>
                   {isGenerating && (
                     <div className="space-y-2">
-                         <Progress value={progress} className="w-full h-4 [&>div]:bg-gradient-to-r [&>div]:from-pink-400 [&>div]:to-teal-400" />
-                         <p className="text-sm text-muted-foreground text-center">
-                            {progress < 25 ? '準備緊背景靈感...' :
-                             progress < 50 ? '分析緊你嘅小可愛...' :
-                             progress < 65 ? '作緊個得意故仔...' :
-                              progress < 85 ? '換緊個靚背景...' :
-                              progress < 100 ? '加緊個靚相框...' : '魔法完成! ✨'}
+                         {/* Fancy Progress Bar */}
+                         <div className="w-full bg-gray-200 rounded-full h-6 dark:bg-gray-700 overflow-hidden shadow-inner">
+                           <div
+                             className="bg-gradient-to-r from-pink-400 via-purple-400 to-teal-400 h-6 rounded-full transition-all duration-500 ease-out flex items-center justify-center text-xs font-medium text-white"
+                             style={{ width: `${progress}%` }}
+                           >
+                             {progress > 10 && `${progress}%`} {/* Show percentage when progress starts */}
+                           </div>
+                         </div>
+                         <p className="text-sm text-muted-foreground text-center font-medium animate-pulse">
+                            {progressText || '準備緊魔法材料...'}
                           </p>
                     </div>
                  )}
-                 {uiError && (
+                 {uiError && !isGenerating && ( // Only show error if not generating
                      <Alert variant="destructive">
                         <AlertTitle>哎呀！出錯喇！</AlertTitle>
                         <AlertDescription>{uiError}</AlertDescription>
@@ -767,7 +824,7 @@ export default function SakuraPetFramesApp() {
           </Card>
 
 
-          {/* Final Output and Story */}
+          {/* Step 4: Result */}
            {(finalFramedImage || generatedStory) && !isGenerating && progress === 100 && (
              <Card>
                  <CardHeader>
@@ -775,29 +832,27 @@ export default function SakuraPetFramesApp() {
                  </CardHeader>
                  <CardContent className="flex flex-col items-center space-y-4">
                     {finalFramedImage && (
-                         // Use standard img tag for the final Data URL
                         <img
                             src={finalFramedImage}
                             alt={`Framed photo of ${animalName}`}
-                             // Display scaled down version while maintaining aspect ratio
-                            style={{ maxWidth: '100%', height: 'auto', maxHeight: '70vh' }} // Control display size
-                            className="rounded-md border shadow-md object-contain bg-muted" // Added bg-muted for loading/error state
+                            style={{ maxWidth: '100%', height: 'auto', maxHeight: '70vh' }}
+                            className="rounded-md border shadow-md object-contain bg-muted"
                              onError={(e) => {
                                 console.error("Error loading final framed image:", e);
                                 toast({ title: "圖片載入錯誤", description: "無法顯示最終圖片。", variant: "destructive" });
                                 setUiError("無法顯示最終圖片。");
-                                setFinalFramedImage(null); // Clear broken source
+                                setFinalFramedImage(null);
                              }}
                         />
                     )}
                      {generatedStory && (
-                        <div className="w-full p-4 bg-muted/50 rounded-md border">
-                             <Label className="text-lg font-semibold">寵物小故事:</Label>
-                             <p className="text-sm mt-2 whitespace-pre-wrap">{generatedStory}</p>
+                        <div className="w-full p-4 bg-primary/10 rounded-md border border-primary/30 mt-4">
+                             <Label className="text-lg font-semibold text-primary/90">📖 寵物小故事:</Label>
+                             <p className="text-sm mt-2 whitespace-pre-wrap text-foreground/80">{generatedStory}</p>
                          </div>
                       )}
                  </CardContent>
-                 <CardFooter className="flex justify-center gap-4">
+                 <CardFooter className="flex justify-center gap-4 pt-4">
                      {finalFramedImage && (
                         <Button onClick={handleDownload}>
                            <Download className="mr-2 h-4 w-4" /> 下載圖片
@@ -819,4 +874,3 @@ export default function SakuraPetFramesApp() {
     </div>
   );
 }
-
