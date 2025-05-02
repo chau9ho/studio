@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -14,8 +15,10 @@ import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import FallingSakura from '@/components/animations/FallingSakura'; // Import the new component
-import { QRCodeCanvas } from 'qrcode.react'; // Import QR code component
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'; // Import Dialog
+// Removed QR code imports as it's causing issues with large data URLs
+// import { QRCodeCanvas } from 'qrcode.react';
+// import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Import Tooltip
 
 
 // AI flow imports
@@ -46,8 +49,8 @@ const categories: Record<Category, string[]> = {
 // Frame and Content Constants based on user request
 const FRAME_WIDTH = 1410; // Width of the frame.png
 const FRAME_HEIGHT = 2250; // Height of the frame.png
-const TARGET_CONTENT_WIDTH = 1441; // Max width constraint for the pet photo
-const TARGET_CONTENT_HEIGHT = 1369; // Max height constraint for the pet photo
+const TARGET_CONTENT_WIDTH = 1410; // Target width for the pet photo within the frame (adjusted to match frame width)
+const TARGET_CONTENT_HEIGHT = 1369; // Target height for the pet photo within the frame
 const TARGET_CONTENT_START_Y = 610; // Y position where the pet image content should start
 
 // ClipDrop dimension limit (set slightly lower for safety)
@@ -134,7 +137,7 @@ export default function SakuraPetFramesApp() {
             console.error("Toast function not available during frame load error.");
         }
          // Optionally set a UI error state here if the frame is critical
-         // setUiError("Failed to load application frame. Please refresh or check the image.");
+         setUiError("Failed to load application frame. Please refresh or check the image.");
     };
 
   }, [toast]); // toast is a dependency because it's used in the error handler
@@ -590,52 +593,84 @@ export default function SakuraPetFramesApp() {
         processedImg.onload = () => {
              console.log(`Processed image loaded: ${processedImg.naturalWidth}x${processedImg.naturalHeight}`);
 
-            const targetWidth = TARGET_CONTENT_WIDTH;
-            const targetHeight = TARGET_CONTENT_HEIGHT;
-            const targetX = (FRAME_WIDTH - targetWidth) / 2; // Center horizontally
-            const targetY = TARGET_CONTENT_START_Y; // Start at specific Y
+             // Target drawing dimensions and position (as per request)
+             const targetWidth = TARGET_CONTENT_WIDTH;
+             const targetHeight = TARGET_CONTENT_HEIGHT;
+             const targetX = (FRAME_WIDTH - targetWidth) / 2; // Center horizontally within the frame
+             const targetY = TARGET_CONTENT_START_Y; // Start at specific Y
 
-             let drawWidth, drawHeight;
+             // Calculate scaling to fit/cover the target area while maintaining aspect ratio
+             let drawWidth, drawHeight, sourceX, sourceY, sourceWidth, sourceHeight;
              const imgRatio = processedImg.naturalWidth / processedImg.naturalHeight;
              const targetRatio = targetWidth / targetHeight;
 
-             // Scale the image to fit within the target area (1441x1369) while maintaining aspect ratio
-              // Logic: Scale to cover the *larger* dimension of the target box
-              if (imgRatio > targetRatio) {
-                  // Image is wider than target box, scale based on height to cover
-                  drawHeight = targetHeight;
-                  drawWidth = drawHeight * imgRatio;
-                   // If scaling by height makes it narrower than target width, scale by width instead
-                   if (drawWidth < targetWidth) {
-                       drawWidth = targetWidth;
-                       drawHeight = drawWidth / imgRatio;
-                   }
+             sourceWidth = processedImg.naturalWidth;
+             sourceHeight = processedImg.naturalHeight;
+             sourceX = 0;
+             sourceY = 0;
 
-              } else {
-                  // Image is taller than target box (or same ratio), scale based on width to cover
-                  drawWidth = targetWidth;
-                  drawHeight = drawWidth / imgRatio;
-                  // If scaling by width makes it shorter than target height, scale by height instead
-                  if (drawHeight < targetHeight) {
-                       drawHeight = targetHeight;
-                       drawWidth = drawHeight * imgRatio;
-                   }
-              }
+            // Determine scaling strategy: Cover the target area
+             if (imgRatio > targetRatio) {
+                 // Image is wider than target area: scale based on height, crop width
+                 drawHeight = targetHeight;
+                 drawWidth = drawHeight * imgRatio;
+                 // Center the drawn image horizontally within the target box
+                 // drawX = targetX + (targetWidth - drawWidth) / 2; // This centers the scaled image
+                 // drawY = targetY;
+
+                 // // To crop the source image instead:
+                 // sourceHeight = processedImg.naturalHeight;
+                 // sourceWidth = sourceHeight * targetRatio;
+                 // sourceX = (processedImg.naturalWidth - sourceWidth) / 2;
+                 // sourceY = 0;
+                 // drawWidth = targetWidth;
+                 // drawHeight = targetHeight;
+
+                  // Fit strategy: Scale based on width, letterbox height
+                 drawWidth = targetWidth;
+                 drawHeight = drawWidth / imgRatio;
 
 
-             // Calculate position to center the SCALED image within the TARGET area
-             // This might clip parts of the image if it's scaled larger than the target area
+             } else {
+                 // Image is taller than target area (or same ratio): scale based on width, crop height
+                 drawWidth = targetWidth;
+                 drawHeight = drawWidth / imgRatio;
+                 // Center the drawn image vertically within the target box
+                 // drawX = targetX;
+                 // drawY = targetY + (targetHeight - drawHeight) / 2; // This centers the scaled image
+
+                 // // To crop the source image instead:
+                 // sourceWidth = processedImg.naturalWidth;
+                 // sourceHeight = sourceWidth / targetRatio;
+                 // sourceY = (processedImg.naturalHeight - sourceHeight) / 2;
+                 // sourceX = 0;
+                 // drawWidth = targetWidth;
+                 // drawHeight = targetHeight;
+
+                 // Fit strategy: Scale based on height, letterbox width
+                 drawHeight = targetHeight;
+                 drawWidth = drawHeight * imgRatio;
+
+             }
+
+             // Calculate position to center the 'fitted' image within the target area
              const drawX = targetX + (targetWidth - drawWidth) / 2;
              const drawY = targetY + (targetHeight - drawHeight) / 2;
 
-            console.log(`Target area: ${targetWidth}x${targetHeight} at X=${targetX}, Y=${targetY}`);
-            console.log(`Calculated draw dimensions (scaled to cover): ${drawWidth}x${drawHeight}`);
-            console.log(`Calculated draw position (centered, may clip): X=${drawX}, Y=${drawY}`);
+             console.log(`Target area: ${targetWidth}x${targetHeight} at X=${targetX}, Y=${targetY}`);
+             console.log(`Source crop area: ${sourceWidth}x${sourceHeight} at X=${sourceX}, Y=${sourceY}`);
+             console.log(`Calculated draw dimensions (fit): ${drawWidth}x${drawHeight}`);
+             console.log(`Calculated draw position (centered fit): X=${drawX}, Y=${drawY}`);
+
 
             try {
-                 // Draw the SCALED and CENTERED processed image ON TOP of the frame
-                 ctx.drawImage(processedImg, drawX, drawY, drawWidth, drawHeight);
-                 console.log("Processed image drawn onto canvas over the frame.");
+                // Draw the potentially cropped and scaled image into the target area
+                ctx.drawImage(
+                     processedImg,
+                     // sourceX, sourceY, sourceWidth, sourceHeight, // Cropping source
+                     drawX, drawY, drawWidth, drawHeight // Drawing scaled/fitted
+                );
+                console.log("Processed image drawn onto canvas over the frame.");
 
                  const finalDataUrl = canvas.toDataURL('image/png');
                  console.log("Final image generated as Data URL.");
@@ -717,361 +752,358 @@ export default function SakuraPetFramesApp() {
   const canGenerate = !!(uploadedImage || capturedImage) && !!selectedCategory && selectedTags.length > 0 && !!apiKeys.clipdropKey && !!animalName;
 
   return (
-    <div className="container mx-auto p-4 max-w-4xl relative"> {/* Added relative positioning */}
-      <FallingSakura /> {/* Add the falling sakura component */}
-      <Card className="w-full shadow-lg overflow-hidden relative z-10 bg-card/80 backdrop-blur-sm non-printable"> {/* Make card slightly transparent and blurred, hide on print */}
-        <CardHeader>
-          <CardTitle className="text-3xl font-bold text-center text-pink-500 flex items-center justify-center gap-2 animate-text-focus-in">
-            <span className="animate-text-pop-up-on-hover inline-block">🌸</span>
-            <span className="animate-text-pop-up-on-hover inline-block">櫻</span>
-            <span className="animate-text-pop-up-on-hover inline-block">花</span>
-            <span className="animate-text-pop-up-on-hover inline-block">寵</span>
-            <span className="animate-text-pop-up-on-hover inline-block">物</span>
-            <span className="animate-text-pop-up-on-hover inline-block">魔</span>
-            <span className="animate-text-pop-up-on-hover inline-block">法</span>
-            <span className="animate-text-pop-up-on-hover inline-block">變</span>
-            <span className="animate-text-pop-up-on-hover inline-block">身</span>
-            <span className="animate-text-pop-up-on-hover inline-block">器</span>
-            <span className="animate-text-pop-up-on-hover inline-block">🌸</span>
-          </CardTitle>
-          <CardDescription className="text-center animate-text-focus-in" style={{ animationDelay: '0.5s' }}>
-             <span className="animate-text-pop-up-on-hover inline-block">揀</span>
-             <span className="animate-text-pop-up-on-hover inline-block">張</span>
-             <span className="animate-text-pop-up-on-hover inline-block">寵</span>
-             <span className="animate-text-pop-up-on-hover inline-block">物</span>
-             <span className="animate-text-pop-up-on-hover inline-block">相</span>
-             <span className="animate-text-pop-up-on-hover inline-block"> + </span>
-             <span className="animate-text-pop-up-on-hover inline-block">揀</span>
-             <span className="animate-text-pop-up-on-hover inline-block">個</span>
-             <span className="animate-text-pop-up-on-hover inline-block">風</span>
-             <span className="animate-text-pop-up-on-hover inline-block">格</span>
-             <span className="animate-text-pop-up-on-hover inline-block"> = </span>
-             <span className="animate-text-pop-up-on-hover inline-block">獨</span>
-             <span className="animate-text-pop-up-on-hover inline-block">一</span>
-             <span className="animate-text-pop-up-on-hover inline-block">無</span>
-             <span className="animate-text-pop-up-on-hover inline-block">二</span>
-             <span className="animate-text-pop-up-on-hover inline-block">嘅</span>
-             <span className="animate-text-pop-up-on-hover inline-block">櫻</span>
-             <span className="animate-text-pop-up-on-hover inline-block">花</span>
-             <span className="animate-text-pop-up-on-hover inline-block">魔</span>
-             <span className="animate-text-pop-up-on-hover inline-block">法</span>
-             <span className="animate-text-pop-up-on-hover inline-block">相</span>
-             <span className="animate-text-pop-up-on-hover inline-block">！</span>
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+    <TooltipProvider> {/* Added TooltipProvider */}
+      <div className="container mx-auto p-4 max-w-4xl relative"> {/* Added relative positioning */}
+        <FallingSakura /> {/* Add the falling sakura component */}
+        <Card className="w-full shadow-lg overflow-hidden relative z-10 bg-card/80 backdrop-blur-sm non-printable"> {/* Make card slightly transparent and blurred, hide on print */}
+          <CardHeader>
+            <CardTitle className="text-3xl font-bold text-center text-pink-500 flex items-center justify-center gap-2 animate-text-focus-in">
+              <span className="animate-text-pop-up-on-hover inline-block">🌸</span>
+              <span className="animate-text-pop-up-on-hover inline-block">櫻</span>
+              <span className="animate-text-pop-up-on-hover inline-block">花</span>
+              <span className="animate-text-pop-up-on-hover inline-block">寵</span>
+              <span className="animate-text-pop-up-on-hover inline-block">物</span>
+              <span className="animate-text-pop-up-on-hover inline-block">魔</span>
+              <span className="animate-text-pop-up-on-hover inline-block">法</span>
+              <span className="animate-text-pop-up-on-hover inline-block">變</span>
+              <span className="animate-text-pop-up-on-hover inline-block">身</span>
+              <span className="animate-text-pop-up-on-hover inline-block">器</span>
+              <span className="animate-text-pop-up-on-hover inline-block">🌸</span>
+            </CardTitle>
+            <CardDescription className="text-center animate-text-focus-in" style={{ animationDelay: '0.5s' }}>
+               <span className="animate-text-pop-up-on-hover inline-block">揀</span>
+               <span className="animate-text-pop-up-on-hover inline-block">張</span>
+               <span className="animate-text-pop-up-on-hover inline-block">寵</span>
+               <span className="animate-text-pop-up-on-hover inline-block">物</span>
+               <span className="animate-text-pop-up-on-hover inline-block">相</span>
+               <span className="animate-text-pop-up-on-hover inline-block"> + </span>
+               <span className="animate-text-pop-up-on-hover inline-block">揀</span>
+               <span className="animate-text-pop-up-on-hover inline-block">個</span>
+               <span className="animate-text-pop-up-on-hover inline-block">風</span>
+               <span className="animate-text-pop-up-on-hover inline-block">格</span>
+               <span className="animate-text-pop-up-on-hover inline-block"> = </span>
+               <span className="animate-text-pop-up-on-hover inline-block">獨</span>
+               <span className="animate-text-pop-up-on-hover inline-block">一</span>
+               <span className="animate-text-pop-up-on-hover inline-block">無</span>
+               <span className="animate-text-pop-up-on-hover inline-block">二</span>
+               <span className="animate-text-pop-up-on-hover inline-block">嘅</span>
+               <span className="animate-text-pop-up-on-hover inline-block">櫻</span>
+               <span className="animate-text-pop-up-on-hover inline-block">花</span>
+               <span className="animate-text-pop-up-on-hover inline-block">魔</span>
+               <span className="animate-text-pop-up-on-hover inline-block">法</span>
+               <span className="animate-text-pop-up-on-hover inline-block">相</span>
+               <span className="animate-text-pop-up-on-hover inline-block">！</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
 
-          {/* Simplified Combined Input Section */}
-          <Card className="non-printable">
-             <CardHeader>
-                <CardTitle className="text-xl flex items-center gap-2"><ImagePlus size={24} /> 1. 揀選寵物靚相 &amp; 風格</CardTitle>
-                <CardDescription>上載/影相，再揀個主題同風格！</CardDescription>
-             </CardHeader>
-             <CardContent className="space-y-4">
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                     {/* --- Left side: Image Input --- */}
-                     <div className="space-y-4">
-                         <Label className="font-semibold">A. 揀選寵物相片</Label>
-                         <Tabs defaultValue="upload">
-                             <TabsList className="grid w-full grid-cols-2">
-                                 <TabsTrigger value="upload" disabled={isGenerating}><Upload className="mr-2 h-4 w-4 inline"/>上載圖片</TabsTrigger>
-                                 <TabsTrigger value="webcam" disabled={isGenerating}><Camera className="mr-2 h-4 w-4 inline"/>即時拍攝</TabsTrigger>
-                             </TabsList>
-                             <TabsContent value="upload">
-                                 <div className="space-y-2 pt-2">
-                                    <Label htmlFor="picture" className="text-sm text-muted-foreground">揀選相片檔案 (太大會自動縮細)</Label>
-                                    <Input id="picture" type="file" accept="image/*" onChange={handleImageUpload} disabled={isGenerating} />
-                                 </div>
-                             </TabsContent>
-                             <TabsContent value="webcam">
-                                 <div className="space-y-2 pt-2">
-                                     {!isWebcamOpen && (
-                                        <Button onClick={startWebcam} variant="outline" disabled={hasCameraPermission === false || isGenerating}>
-                                            <Camera className="mr-2 h-4 w-4" /> 開啟鏡頭
-                                        </Button>
-                                     )}
-                                      {/* Video element always present but hidden when not active */}
-                                      <div className={`relative aspect-video bg-muted rounded-md overflow-hidden ${!showWebcam ? 'hidden' : ''}`}>
-                                          <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
-                                           {isWebcamOpen && (
-                                                <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-2">
-                                                    <Button onClick={captureImage} size="icon" variant="destructive" title="影相">
-                                                        <Camera />
-                                                    </Button>
-                                                    <Button onClick={stopWebcam} size="icon" variant="secondary" title="關閉鏡頭">
-                                                        <X/>
-                                                    </Button>
-                                                </div>
-                                           )}
+            {/* Simplified Combined Input Section */}
+            <Card className="non-printable">
+               <CardHeader>
+                  <CardTitle className="text-xl flex items-center gap-2"><ImagePlus size={24} /> 1. 揀選寵物靚相 &amp; 風格</CardTitle>
+                  <CardDescription>上載/影相，再揀個主題同風格！</CardDescription>
+               </CardHeader>
+               <CardContent className="space-y-4">
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                       {/* --- Left side: Image Input --- */}
+                       <div className="space-y-4">
+                           <Label className="font-semibold">A. 揀選寵物相片</Label>
+                           <Tabs defaultValue="upload">
+                               <TabsList className="grid w-full grid-cols-2">
+                                   <TabsTrigger value="upload" disabled={isGenerating}><Upload className="mr-2 h-4 w-4 inline"/>上載圖片</TabsTrigger>
+                                   <TabsTrigger value="webcam" disabled={isGenerating}><Camera className="mr-2 h-4 w-4 inline"/>即時拍攝</TabsTrigger>
+                               </TabsList>
+                               <TabsContent value="upload">
+                                   <div className="space-y-2 pt-2">
+                                      <Label htmlFor="picture" className="text-sm text-muted-foreground">揀選相片檔案 (太大會自動縮細)</Label>
+                                      <Input id="picture" type="file" accept="image/*" onChange={handleImageUpload} disabled={isGenerating} />
+                                   </div>
+                               </TabsContent>
+                               <TabsContent value="webcam">
+                                   <div className="space-y-2 pt-2">
+                                       {!isWebcamOpen && (
+                                          <Button onClick={startWebcam} variant="outline" disabled={hasCameraPermission === false || isGenerating}>
+                                              <Camera className="mr-2 h-4 w-4" /> 開啟鏡頭
+                                          </Button>
+                                       )}
+                                        {/* Video element always present but hidden when not active */}
+                                        <div className={`relative aspect-video bg-muted rounded-md overflow-hidden ${!showWebcam ? 'hidden' : ''}`}>
+                                            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
+                                             {isWebcamOpen && (
+                                                  <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-2">
+                                                      <Button onClick={captureImage} size="icon" variant="destructive" title="影相">
+                                                          <Camera />
+                                                      </Button>
+                                                      <Button onClick={stopWebcam} size="icon" variant="secondary" title="關閉鏡頭">
+                                                          <X/>
+                                                      </Button>
+                                                  </div>
+                                             )}
+                                        </div>
+                                       {hasCameraPermission === false && !isWebcamOpen && ( // Show error only if webcam is not open but permission denied
+                                           <Alert variant="destructive">
+                                              <AlertTitle>鏡頭權限被拒</AlertTitle>
+                                              <AlertDescription>
+                                                 請喺瀏覽器設定允許使用鏡頭，然後可能需要重新整理頁面。
+                                              </AlertDescription>
+                                          </Alert>
+                                       )}
+                                       {hasCameraPermission === null && isWebcamOpen && ( // Show loading only when webcam is open and permission pending
+                                           <p className="text-sm text-muted-foreground">要求鏡頭權限中...</p>
+                                       )}
+                                   </div>
+                               </TabsContent>
+                           </Tabs>
+                            {previewImageSrc && (
+                               <div className="mt-4">
+                                   <Label>預覽:</Label>
+                                   <img
+                                      src={previewImageSrc}
+                                      alt="已上載或拍攝的寵物相"
+                                      width={300}
+                                      height={225}
+                                      className="rounded-md border mt-1 object-cover bg-muted"
+                                      data-ai-hint="pet animal"
+                                       onError={(e) => {
+                                          console.error("Error loading preview image:", e);
+                                          toast({ title: "圖片載入錯誤", description: "無法顯示預覽圖片。", variant: "destructive" });
+                                          setUiError("無法顯示預覽圖片。");
+                                          if (previewImageSrc === currentObjectUrl) setCurrentObjectUrl(null);
+                                          if (previewImageSrc === capturedImage) setCapturedImage(null);
+                                       }}
+                                   />
+                               </div>
+                           )}
+                       </div>
+
+                       {/* --- Right side: Style Selection & Name --- */}
+                       <div className="space-y-4">
+                            <div>
+                               <Label htmlFor="animalName" className="font-semibold">B. 寵物名</Label>
+                               <Input
+                                   id="animalName"
+                                   type="text"
+                                   placeholder="例如: Mochi, 波子"
+                                   value={animalName}
+                                   onChange={(e) => setAnimalName(e.target.value)}
+                                   className="mt-1"
+                                   disabled={isGenerating}
+                               />
+                           </div>
+                           <div>
+                              <Label htmlFor="category" className="font-semibold">C. 背景主題</Label>
+                              <Select
+                                  onValueChange={(value) => {
+                                      setSelectedCategory(value as Category);
+                                      setSelectedTags([]); // Reset tags when category changes
+                                  }}
+                                  value={selectedCategory || ''}
+                                  disabled={isGenerating}
+                              >
+                                  <SelectTrigger id="category" className="mt-1">
+                                  <SelectValue placeholder="揀一個大主題..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                  {Object.keys(categories).map((cat) => (
+                                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                  ))}
+                                  </SelectContent>
+                              </Select>
+                           </div>
+                            {selectedCategory && (
+                              <div className="space-y-2">
+                                  <Label className="font-semibold">D. 背景風格 (揀多個都得)</Label>
+                                   <ScrollArea className="h-48 w-full rounded-md border p-4 mt-1">
+                                      <div className="grid grid-cols-2 gap-2">
+                                          {categories[selectedCategory].map((tag) => (
+                                              <div key={tag} className="flex items-center space-x-2">
+                                                  <Checkbox
+                                                      id={`tag-${tag}`}
+                                                      checked={selectedTags.includes(tag)}
+                                                      onCheckedChange={(checked) => handleTagChange(tag, checked)}
+                                                      disabled={isGenerating}
+                                                  />
+                                                  <Label htmlFor={`tag-${tag}`} className="text-sm font-normal cursor-pointer">
+                                                      {tag}
+                                                  </Label>
+                                              </div>
+                                          ))}
                                       </div>
-                                     {hasCameraPermission === false && !isWebcamOpen && ( // Show error only if webcam is not open but permission denied
-                                         <Alert variant="destructive">
-                                            <AlertTitle>鏡頭權限被拒</AlertTitle>
-                                            <AlertDescription>
-                                               請喺瀏覽器設定允許使用鏡頭，然後可能需要重新整理頁面。
-                                            </AlertDescription>
-                                        </Alert>
-                                     )}
-                                     {hasCameraPermission === null && isWebcamOpen && ( // Show loading only when webcam is open and permission pending
-                                         <p className="text-sm text-muted-foreground">要求鏡頭權限中...</p>
-                                     )}
-                                 </div>
-                             </TabsContent>
-                         </Tabs>
-                          {previewImageSrc && (
-                             <div className="mt-4">
-                                 <Label>預覽:</Label>
-                                 <img
-                                    src={previewImageSrc}
-                                    alt="已上載或拍攝的寵物相"
-                                    width={300}
-                                    height={225}
-                                    className="rounded-md border mt-1 object-cover bg-muted"
-                                    data-ai-hint="pet animal"
-                                     onError={(e) => {
-                                        console.error("Error loading preview image:", e);
-                                        toast({ title: "圖片載入錯誤", description: "無法顯示預覽圖片。", variant: "destructive" });
-                                        setUiError("無法顯示預覽圖片。");
-                                        if (previewImageSrc === currentObjectUrl) setCurrentObjectUrl(null);
-                                        if (previewImageSrc === capturedImage) setCapturedImage(null);
-                                     }}
-                                 />
+                                   </ScrollArea>
+                              </div>
+                           )}
+                            {/* Hidden API Key Input - still useful for saving */}
+                             <div className="hidden">
+                               <Label htmlFor="clipdropKey">ClipDrop API Key</Label>
+                               <Input
+                                  id="clipdropKey"
+                                  type="password"
+                                  value={apiKeys.clipdropKey}
+                                  onChange={(e) => setApiKeys(prev => ({ ...prev, clipdropKey: e.target.value }))}
+                                  className="mt-1"
+                               />
+                               <Button onClick={handleSaveKeys} size="sm" className="mt-2">儲存 API Key</Button>
                              </div>
-                         )}
-                     </div>
 
-                     {/* --- Right side: Style Selection & Name --- */}
-                     <div className="space-y-4">
-                          <div>
-                             <Label htmlFor="animalName" className="font-semibold">B. 寵物名</Label>
-                             <Input
-                                 id="animalName"
-                                 type="text"
-                                 placeholder="例如: Mochi, 波子"
-                                 value={animalName}
-                                 onChange={(e) => setAnimalName(e.target.value)}
-                                 className="mt-1"
-                                 disabled={isGenerating}
-                             />
-                         </div>
-                         <div>
-                            <Label htmlFor="category" className="font-semibold">C. 背景主題</Label>
-                            <Select
-                                onValueChange={(value) => {
-                                    setSelectedCategory(value as Category);
-                                    setSelectedTags([]); // Reset tags when category changes
-                                }}
-                                value={selectedCategory || ''}
-                                disabled={isGenerating}
-                            >
-                                <SelectTrigger id="category" className="mt-1">
-                                <SelectValue placeholder="揀一個大主題..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                {Object.keys(categories).map((cat) => (
-                                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                                ))}
-                                </SelectContent>
-                            </Select>
-                         </div>
-                          {selectedCategory && (
-                            <div className="space-y-2">
-                                <Label className="font-semibold">D. 背景風格 (揀多個都得)</Label>
-                                 <ScrollArea className="h-48 w-full rounded-md border p-4 mt-1">
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {categories[selectedCategory].map((tag) => (
-                                            <div key={tag} className="flex items-center space-x-2">
-                                                <Checkbox
-                                                    id={`tag-${tag}`}
-                                                    checked={selectedTags.includes(tag)}
-                                                    onCheckedChange={(checked) => handleTagChange(tag, checked)}
-                                                    disabled={isGenerating}
-                                                />
-                                                <Label htmlFor={`tag-${tag}`} className="text-sm font-normal cursor-pointer">
-                                                    {tag}
-                                                </Label>
-                                            </div>
-                                        ))}
-                                    </div>
-                                 </ScrollArea>
-                            </div>
-                         )}
-                          {/* Hidden API Key Input - still useful for saving */}
-                           <div className="hidden">
-                             <Label htmlFor="clipdropKey">ClipDrop API Key</Label>
-                             <Input
-                                id="clipdropKey"
-                                type="password"
-                                value={apiKeys.clipdropKey}
-                                onChange={(e) => setApiKeys(prev => ({ ...prev, clipdropKey: e.target.value }))}
-                                className="mt-1"
-                             />
-                             <Button onClick={handleSaveKeys} size="sm" className="mt-2">儲存 API Key</Button>
-                           </div>
-
-                         {!apiKeys.clipdropKey && (
-                              <Alert variant="destructive">
-                                  <AlertTitle>缺少 ClipDrop Key</AlertTitle>
-                                  <AlertDescription>
-                                      要換背景需要 ClipDrop API Key！ <a href="https://clipdrop.co/apis" target="_blank" rel="noopener noreferrer" className="underline">去申請</a>
-                                      {/* Optionally add input back if needed */}
-                                  </AlertDescription>
-                              </Alert>
-                          )}
-                     </div>
-                 </div>
-             </CardContent>
-          </Card>
+                           {!apiKeys.clipdropKey && (
+                                <Alert variant="destructive">
+                                    <AlertTitle>缺少 ClipDrop Key</AlertTitle>
+                                    <AlertDescription>
+                                        要換背景需要 ClipDrop API Key！ <a href="https://clipdrop.co/apis" target="_blank" rel="noopener noreferrer" className="underline">去申請</a>
+                                        {/* Optionally add input back if needed */}
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+                       </div>
+                   </div>
+               </CardContent>
+            </Card>
 
 
-          {/* Step 2: Generate */}
-          <Card className="non-printable">
-             <CardHeader>
-                <CardTitle className="text-xl flex items-center gap-2"><Sparkles size={24} /> 2. 施展魔法 ✨</CardTitle>
-                <CardDescription>撳個掣，等陣就有靚相睇！</CardDescription>
-             </CardHeader>
-             <CardContent className="space-y-4">
-                 <Button
-                    onClick={handleGenerateMagic}
-                    disabled={!canGenerate || isGenerating}
-                    className={`w-full text-lg py-6 bg-gradient-to-r from-pink-400 via-purple-400 to-teal-400 hover:from-pink-500 hover:via-purple-500 hover:to-teal-500 text-white shadow-lg transition duration-300 ease-in-out transform hover:scale-105 active:scale-95 disabled:from-pink-200 disabled:via-purple-200 disabled:to-teal-200 disabled:scale-100 disabled:cursor-not-allowed ${!isGenerating && canGenerate ? 'animate-subtle-pulse' : ''}`} // Added pulse animation when ready
-                  >
-                    {isGenerating ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <WandSparkles className="mr-2 h-6 w-6" />}
-                    {isGenerating ? '魔法變身中...' : '開始變身！'}
-                 </Button>
-                  {isGenerating && (
-                    <div className="space-y-2 pt-4 progress-bar-container"> {/* Added wrapper class */}
-                          {/* Funky Progress Bar */}
-                         <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 overflow-hidden shadow-inner relative">
-                             {/* Sparkle effect */}
-                             <div className="absolute top-0 left-0 h-full w-full overflow-hidden rounded-full">
-                                {Array.from({ length: 10 }).map((_, i) => (
-                                    <div
-                                        key={i}
-                                        className="absolute h-1 w-1 bg-white rounded-full animate-pulse"
-                                        style={{
-                                            left: `${Math.random() * 100}%`,
-                                            top: `${Math.random() * 100}%`,
-                                            animationDelay: `${Math.random() * 2}s`,
-                                            animationDuration: '1.5s'
-                                        }}
-                                    />
-                                ))}
+            {/* Step 2: Generate */}
+            <Card className="non-printable">
+               <CardHeader>
+                  <CardTitle className="text-xl flex items-center gap-2"><Sparkles size={24} /> 2. 施展魔法 ✨</CardTitle>
+                  <CardDescription>撳個掣，等陣就有靚相睇！</CardDescription>
+               </CardHeader>
+               <CardContent className="space-y-4">
+                   <Button
+                      onClick={handleGenerateMagic}
+                      disabled={!canGenerate || isGenerating}
+                      className={`w-full text-lg py-6 bg-gradient-to-r from-pink-400 via-purple-400 to-teal-400 hover:from-pink-500 hover:via-purple-500 hover:to-teal-500 text-white shadow-lg transition duration-300 ease-in-out transform hover:scale-105 active:scale-95 disabled:from-pink-200 disabled:via-purple-200 disabled:to-teal-200 disabled:scale-100 disabled:cursor-not-allowed ${!isGenerating && canGenerate ? 'animate-subtle-pulse' : ''}`} // Added pulse animation when ready
+                    >
+                      {isGenerating ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <WandSparkles className="mr-2 h-6 w-6" />}
+                      {isGenerating ? '魔法變身中...' : '開始變身！'}
+                   </Button>
+                    {isGenerating && (
+                      <div className="space-y-2 pt-4 progress-bar-container"> {/* Added wrapper class */}
+                            {/* Funky Progress Bar */}
+                           <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 overflow-hidden shadow-inner relative">
+                               {/* Sparkle effect */}
+                               <div className="absolute top-0 left-0 h-full w-full overflow-hidden rounded-full">
+                                  {Array.from({ length: 10 }).map((_, i) => (
+                                      <div
+                                          key={i}
+                                          className="absolute h-1 w-1 bg-white rounded-full animate-pulse"
+                                          style={{
+                                              left: `${Math.random() * 100}%`,
+                                              top: `${Math.random() * 100}%`,
+                                              animationDelay: `${Math.random() * 2}s`,
+                                              animationDuration: '1.5s'
+                                          }}
+                                      />
+                                  ))}
+                               </div>
+                             <div
+                               className="bg-gradient-to-r from-pink-400 via-purple-500 to-teal-400 h-2.5 rounded-full transition-all duration-500 ease-out flex items-center justify-center text-xs font-medium text-white shadow-md"
+                               style={{ width: `${progress}%` }}
+                               role="progressbar"
+                               aria-valuenow={progress}
+                               aria-valuemin={0}
+                               aria-valuemax={100}
+                               aria-label="Generation Progress"
+                             >
                              </div>
-                           <div
-                             className="bg-gradient-to-r from-pink-400 via-purple-500 to-teal-400 h-2.5 rounded-full transition-all duration-500 ease-out flex items-center justify-center text-xs font-medium text-white shadow-md"
-                             style={{ width: `${progress}%` }}
-                             role="progressbar"
-                             aria-valuenow={progress}
-                             aria-valuemin={0}
-                             aria-valuemax={100}
-                             aria-label="Generation Progress"
-                           >
                            </div>
-                         </div>
-                         <p className="text-sm text-muted-foreground text-center font-medium animate-pulse pt-1">
-                            {progressText || '準備緊魔法材料...🧪'} <span className="inline-block animate-bounce">✨</span>
-                          </p>
-                    </div>
-                 )}
-                 {uiError && !isGenerating && ( // Only show error if not generating
-                     <Alert variant="destructive">
-                        <AlertTitle>哎呀！出錯喇！</AlertTitle>
-                        <AlertDescription>{uiError}</AlertDescription>
-                     </Alert>
-                 )}
-             </CardContent>
-          </Card>
+                           <p className="text-sm text-muted-foreground text-center font-medium animate-pulse pt-1">
+                              {progressText || '準備緊魔法材料...🧪'} <span className="inline-block animate-bounce">✨</span>
+                            </p>
+                      </div>
+                   )}
+                   {uiError && !isGenerating && ( // Only show error if not generating
+                       <Alert variant="destructive">
+                          <AlertTitle>哎呀！出錯喇！</AlertTitle>
+                          <AlertDescription>{uiError}</AlertDescription>
+                       </Alert>
+                   )}
+               </CardContent>
+            </Card>
 
 
-          {/* Step 3: Result */}
-           {(finalFramedImage || generatedStory) && !isGenerating && progress === 100 && (
-             <Card className="non-printable"> {/* Hide card container itself on print */}
-                 <CardHeader>
-                    <CardTitle className="text-xl flex items-center gap-2"><PartyPopper size={24} /> 3. 魔法相框完成 🎉</CardTitle>
-                    <CardDescription>睇下你嘅大作！</CardDescription>
-                 </CardHeader>
-                 <CardContent className="flex flex-col items-center space-y-4">
-                    {/* --- Image for Display (will be hidden on print) --- */}
-                    {finalFramedImage && (
-                        <div className="w-full max-w-[400px] md:max-w-[500px] mx-auto non-printable"> {/* Hide this wrapper on print */}
-                             <Label className="text-lg font-semibold text-center block mb-2">🖼️ 你的專屬相框:</Label>
-                            <img
-                                src={finalFramedImage}
-                                alt={`Framed photo of ${animalName}`}
-                                width={FRAME_WIDTH}
-                                height={FRAME_HEIGHT}
-                                className="rounded-md border shadow-md object-contain bg-muted w-full h-auto"
-                                 onError={(e) => {
-                                    console.error("Error loading final framed image:", e);
-                                    toast({ title: "圖片載入錯誤", description: "無法顯示最終圖片。", variant: "destructive" });
-                                    setUiError("無法顯示最終圖片。");
-                                    setFinalFramedImage(null);
-                                 }}
-                            />
-                         </div>
-                    )}
-                     {generatedStory && (
-                        <div className="w-full p-4 bg-pink-50 rounded-md border border-pink-200 mt-4 story-container"> {/* Add class to hide on print */}
-                             <Label className="text-lg font-semibold text-pink-700 flex items-center gap-2">📖 寵物小故事:</Label>
-                             <p className="text-sm mt-2 whitespace-pre-wrap text-gray-700">{generatedStory}</p>
-                         </div>
+            {/* Step 3: Result */}
+             {(finalFramedImage || generatedStory) && !isGenerating && progress === 100 && (
+               <Card className="non-printable"> {/* Hide card container itself on print */}
+                   <CardHeader>
+                      <CardTitle className="text-xl flex items-center gap-2"><PartyPopper size={24} /> 3. 魔法相框完成 🎉</CardTitle>
+                      <CardDescription>睇下你嘅大作！</CardDescription>
+                   </CardHeader>
+                   <CardContent className="flex flex-col items-center space-y-4">
+                      {/* --- Image for Display (will be hidden on print) --- */}
+                      {finalFramedImage && (
+                          <div className="w-full max-w-[400px] md:max-w-[500px] mx-auto non-printable"> {/* Hide this wrapper on print */}
+                               <Label className="text-lg font-semibold text-center block mb-2">🖼️ 你的專屬相框:</Label>
+                              <img
+                                  src={finalFramedImage}
+                                  alt={`Framed photo of ${animalName}`}
+                                  width={FRAME_WIDTH}
+                                  height={FRAME_HEIGHT}
+                                  className="rounded-md border shadow-md object-contain bg-muted w-full h-auto"
+                                   onError={(e) => {
+                                      console.error("Error loading final framed image:", e);
+                                      toast({ title: "圖片載入錯誤", description: "無法顯示最終圖片。", variant: "destructive" });
+                                      setUiError("無法顯示最終圖片。");
+                                      setFinalFramedImage(null);
+                                   }}
+                              />
+                           </div>
                       )}
-                 </CardContent>
-                 <CardFooter className="flex justify-center gap-4 pt-4 non-printable"> {/* Hide footer on print */}
-                     {finalFramedImage && (
-                        <>
-                         <Button onClick={handleDownload}>
-                            <Download className="mr-2 h-4 w-4" /> 下載靚相
-                         </Button>
-                         <Button onClick={handlePrint}>
-                           <Printer className="mr-2 h-4 w-4" /> 列印 (4R)
-                         </Button>
-                          <Dialog>
-                            <DialogTrigger asChild>
-                               <Button variant="outline">
-                                 <QrCode className="mr-2 h-4 w-4" /> 顯示 QR Code
-                               </Button>
-                            </DialogTrigger>
-                            <DialogContent className="sm:max-w-[425px] flex flex-col items-center">
-                              <DialogHeader>
-                                <DialogTitle>用手機掃描下載圖片</DialogTitle>
-                              </DialogHeader>
-                               {finalFramedImage ? (
-                                <QRCodeCanvas value={finalFramedImage} size={256} includeMargin={true} />
-                               ) : (
-                                 <p>無法生成 QR Code，因為圖片唔存在。</p>
-                               )}
-                            </DialogContent>
-                          </Dialog>
-                        </>
-                     )}
-                     <Button onClick={handleReset} variant="outline">
-                        <RotateCcw className="mr-2 h-4 w-4" /> 再玩一次
-                     </Button>
-                 </CardFooter>
-             </Card>
-           )}
+                       {generatedStory && (
+                          <div className="w-full p-4 bg-pink-50 rounded-md border border-pink-200 mt-4 story-container"> {/* Add class to hide on print */}
+                               <Label className="text-lg font-semibold text-pink-700 flex items-center gap-2">📖 寵物小故事:</Label>
+                               <p className="text-sm mt-2 whitespace-pre-wrap text-gray-700">{generatedStory}</p>
+                           </div>
+                        )}
+                   </CardContent>
+                   <CardFooter className="flex justify-center gap-4 pt-4 non-printable"> {/* Hide footer on print */}
+                       {finalFramedImage && (
+                          <>
+                           <Button onClick={handleDownload}>
+                              <Download className="mr-2 h-4 w-4" /> 下載靚相
+                           </Button>
+                           <Button onClick={handlePrint}>
+                             <Printer className="mr-2 h-4 w-4" /> 列印 (4R)
+                           </Button>
+                            {/* Removed QR Code Dialog due to data length issues */}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                {/* Disable the QR code button and show a tooltip */}
+                                <Button variant="outline" disabled>
+                                  <QrCode className="mr-2 h-4 w-4" /> QR Code (停用)
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>圖片檔案太大，無法生成QR Code。請先下載圖片。</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </>
+                       )}
+                       <Button onClick={handleReset} variant="outline">
+                          <RotateCcw className="mr-2 h-4 w-4" /> 再玩一次
+                       </Button>
+                   </CardFooter>
+               </Card>
+             )}
 
 
-         {/* Hidden canvas for final image composition */}
-         <canvas ref={finalCanvasRef} className="hidden"></canvas>
-          {/* Removed hidden canvas for webcam capture/resize */}
-         {/* <canvas ref={canvasRef} className="hidden"></canvas> */}
+           {/* Hidden canvas for final image composition */}
+           <canvas ref={finalCanvasRef} className="hidden"></canvas>
+            {/* Removed hidden canvas for webcam capture/resize */}
+           {/* <canvas ref={canvasRef} className="hidden"></canvas> */}
 
-        </CardContent>
-         <CardFooter className="text-center text-xs text-muted-foreground justify-center non-printable"> {/* Hide on print */}
-             Powered by ClipDrop & Google AI. Inspired by Montara. ✨
-         </CardFooter>
-      </Card>
+          </CardContent>
+           <CardFooter className="text-center text-xs text-muted-foreground justify-center non-printable"> {/* Hide on print */}
+               Powered by ClipDrop & Google AI. Inspired by Montara. ✨
+           </CardFooter>
+        </Card>
 
-       {/* --- Image for Printing (Only visible on print) --- */}
-       {finalFramedImage && (
-           <div className="hidden printable-area"> {/* Hide by default, show on print */}
-               <img src={finalFramedImage} alt={`Printable framed photo of ${animalName}`} />
-           </div>
-       )}
+         {/* --- Image for Printing (Only visible on print) --- */}
+         {finalFramedImage && (
+             <div className="hidden printable-area"> {/* Hide by default, show on print */}
+                 <img src={finalFramedImage} alt={`Printable framed photo of ${animalName}`} />
+             </div>
+         )}
 
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }
