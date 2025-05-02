@@ -173,57 +173,72 @@ body {
 
 /* Print Styles */
 @media print {
-  body {
-    /* Reset background for printing */
+  body, html {
+    /* Reset background and ensure full coverage */
     background-image: none !important;
     background-color: white !important;
     color: black !important;
     -webkit-print-color-adjust: exact !important; /* Ensure background colors print */
     print-color-adjust: exact !important;
-    min-height: auto !important;
+    min-height: 100% !important; /* Ensure body takes full height for printing */
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important; /* Allow content to overflow page if needed, though should fit 4R */
   }
 
-  .container {
-    max-width: 100% !important;
-    padding: 0 !important;
-    margin: 0 !important;
+  /* Hide everything by default */
+  body > * {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Make the specific printable area and its contents visible */
+  .printable-area,
+  .printable-area * { /* Ensure children are also visible */
+    display: block !important; /* Make the container visible */
+    visibility: visible !important;
   }
 
   .printable-area {
-    display: block !important;
-    width: 100% !important;
-    height: auto !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important; /* Ensure it takes full page width */
+    height: 100% !important; /* Ensure it takes full page height */
     margin: 0 !important;
     padding: 0 !important;
     box-shadow: none !important;
     border: none !important;
+    overflow: hidden !important; /* Hide any overflow within the print area */
   }
 
   .printable-area img {
-    max-width: 100% !important; /* Ensure image fits page */
-    height: auto !important;
+    width: 100% !important; /* Make image fill the container width */
+    height: 100% !important; /* Make image fill the container height */
+    object-fit: contain; /* Scale the image down to fit, maintaining aspect ratio */
     display: block !important;
-    margin: 0 auto !important; /* Center image if needed */
-    page-break-inside: avoid !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    page-break-inside: avoid !important; /* Try to keep image on one page */
   }
 
-
-  /* Hide elements not meant for printing */
+  /* Ensure specific non-printable elements remain hidden (redundant but safe) */
   .non-printable {
     display: none !important;
+    visibility: hidden !important;
   }
 
-  /* Hide header, footer, inputs, buttons etc. */
+  /* Explicitly hide common UI elements just in case */
   header, footer, nav, button, input, select, textarea,
-  [data-radix-portal], /* Hide Radix portals like Toasts, Dialogs */
+  [data-radix-portal], /* Hide Radix portals */
   .sakura-petal, /* Hide falling petals */
   [data-orientation="horizontal"], /* Hide separators etc. */
-  .animate-text-focus-in, /* Hide animations */
-  .animate-text-pop-up-on-hover:hover,
-  .animate-subtle-pulse,
   .progress-bar-container, /* Hide progress bar if you have a wrapper */
-  .qr-code-container, /* Initially hide QR code */
-  .story-container /* Hide story by default */
+  .qr-code-container,
+  .story-container,
+  .settings-button-container, /* Add class if needed for settings button */
+  .generation-overlay /* Add class if needed for overlay */
   {
     display: none !important;
     visibility: hidden !important;
@@ -231,6 +246,6 @@ body {
 
   @page {
     size: 4in 6in; /* Set 4R page size */
-    margin: 0; /* Remove default margins */
+    margin: 0mm !important; /* Remove all default margins */
   }
 }

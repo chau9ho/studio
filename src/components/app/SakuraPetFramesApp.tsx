@@ -866,7 +866,7 @@ export default function SakuraPetFramesApp() {
     }
     // Trigger browser's print dialog
     window.print();
-    console.log("Print dialog should be open.");
+    console.log("Print dialog triggered.");
   };
 
 
@@ -898,7 +898,7 @@ export default function SakuraPetFramesApp() {
     <TooltipProvider>
       {/* Generation Overlay */}
        {(isGenerating || isUploading) && ( // Show overlay during generation AND upload
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm"
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm generation-overlay"
              style={{ backgroundImage: "url('/background1.png')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}>
           <div className="text-center p-8 rounded-lg bg-card/80 backdrop-blur-sm shadow-2xl max-w-md mx-auto">
               {/* Show loader or upload icon based on state */}
@@ -909,7 +909,7 @@ export default function SakuraPetFramesApp() {
               )}
               <p className="text-2xl font-bold text-pink-600 mb-2 animate-pulse">{progressText || (isUploading ? '上傳緊...' : '魔法變身中...')}</p>
               {/* Enhanced Progress Bar */}
-              <div className="w-full bg-gray-200 rounded-full h-4 dark:bg-gray-700 overflow-hidden shadow-inner relative border border-pink-200">
+              <div className="w-full bg-gray-200 rounded-full h-4 dark:bg-gray-700 overflow-hidden shadow-inner relative border border-pink-200 progress-bar-container">
                   {/* Sparkle effect */}
                   <div className="absolute top-0 left-0 h-full w-full overflow-hidden rounded-full">
                     {Array.from({ length: 15 }).map((_, i) => (
@@ -946,48 +946,50 @@ export default function SakuraPetFramesApp() {
 
       <div className="container mx-auto p-4 max-w-4xl relative">
         <FallingSakura />
-         {/* Settings Dialog */}
-         <Dialog open={isSettingsDialogOpen} onOpenChange={setIsSettingsDialogOpen}>
-           <DialogTrigger asChild>
-              <Button variant="outline" size="icon" className="absolute top-4 right-4 z-20 non-printable">
-                 <Cog className="h-4 w-4" />
-                 <span className="sr-only">設定</span>
-              </Button>
-           </DialogTrigger>
-           <DialogContent className="sm:max-w-[425px]">
-             <DialogHeader>
-               <DialogTitle>設定</DialogTitle>
-               <DialogDescription>
-                 輸入你嘅 ClipDrop API Key。如果留空，會使用預設 Key。
-               </DialogDescription>
-             </DialogHeader>
-             <div className="grid gap-4 py-4">
-               <div className="grid grid-cols-4 items-center gap-4">
-                 <Label htmlFor="clipdrop-key-input" className="text-right">
-                   API Key
-                 </Label>
-                 <Input
-                   id="clipdrop-key-input"
-                   value={tempApiKeyInput}
-                   onChange={(e) => setTempApiKeyInput(e.target.value)}
-                   placeholder="貼上你嘅 ClipDrop Key"
-                   className="col-span-3"
-                   type="password"
-                 />
-               </div>
-                <Alert variant="default" className="mt-2">
-                   <AlertDescription>
-                       冇 Key? <a href="https://clipdrop.co/apis" target="_blank" rel="noopener noreferrer" className="underline">去 ClipDrop 免費申請</a>.
-                       <br />
-                       留空會用預設 Key (可能有使用限制)。
-                   </AlertDescription>
-               </Alert>
-             </div>
-             <DialogFooter>
-               <Button type="button" onClick={handleSaveSettings}>儲存設定</Button>
-             </DialogFooter>
-           </DialogContent>
-         </Dialog>
+         {/* Settings Dialog Trigger - Moved to div for positioning */}
+         <div className="absolute top-4 right-4 z-20 non-printable settings-button-container">
+             <Dialog open={isSettingsDialogOpen} onOpenChange={setIsSettingsDialogOpen}>
+               <DialogTrigger asChild>
+                  <Button variant="outline" size="icon">
+                     <Cog className="h-4 w-4" />
+                     <span className="sr-only">設定</span>
+                  </Button>
+               </DialogTrigger>
+               <DialogContent className="sm:max-w-[425px]">
+                 <DialogHeader>
+                   <DialogTitle>設定</DialogTitle>
+                   <DialogDescription>
+                     輸入你嘅 ClipDrop API Key。如果留空，會使用預設 Key。
+                   </DialogDescription>
+                 </DialogHeader>
+                 <div className="grid gap-4 py-4">
+                   <div className="grid grid-cols-4 items-center gap-4">
+                     <Label htmlFor="clipdrop-key-input" className="text-right">
+                       API Key
+                     </Label>
+                     <Input
+                       id="clipdrop-key-input"
+                       value={tempApiKeyInput}
+                       onChange={(e) => setTempApiKeyInput(e.target.value)}
+                       placeholder="貼上你嘅 ClipDrop Key"
+                       className="col-span-3"
+                       type="password"
+                     />
+                   </div>
+                    <Alert variant="default" className="mt-2">
+                       <AlertDescription>
+                           冇 Key? <a href="https://clipdrop.co/apis" target="_blank" rel="noopener noreferrer" className="underline">去 ClipDrop 免費申請</a>.
+                           <br />
+                           留空會用預設 Key (可能有使用限制)。
+                       </AlertDescription>
+                   </Alert>
+                 </div>
+                 <DialogFooter>
+                   <Button type="button" onClick={handleSaveSettings}>儲存設定</Button>
+                 </DialogFooter>
+               </DialogContent>
+             </Dialog>
+         </div>
 
         <Card className="w-full shadow-lg overflow-hidden relative z-10 bg-card/80 backdrop-blur-sm non-printable">
           <CardHeader>
@@ -1085,7 +1087,7 @@ export default function SakuraPetFramesApp() {
                                <TabsContent value="qrcode"> {/* Updated QR Code / Cloud Tab Content */}
                                   <div className="space-y-4 pt-4">
                                      {/* QR Code Section */}
-                                     <div className='flex flex-col items-center gap-4 border-b pb-4 mb-4'>
+                                     <div className='flex flex-col items-center gap-4 border-b pb-4 mb-4 qr-code-container'>
                                           <p className="text-sm text-center text-muted-foreground">用手機掃描 QR Code，上載寵物相片到雲端。</p>
                                            {!animalName ? (
                                                <Alert variant="destructive">
@@ -1268,6 +1270,7 @@ export default function SakuraPetFramesApp() {
                       {finalFramedImage && (
                           <div className="w-full max-w-[400px] md:max-w-[500px] mx-auto">
                                <Label className="text-lg font-semibold text-center block mb-2 text-pink-700">🖼️ 魔法相框:</Label>
+                              {/* Image is intentionally not wrapped in printable-area here */}
                               <img
                                   src={finalFramedImage} // Use the local Data URL for immediate display
                                   alt={`Framed photo of ${animalName}`}
@@ -1309,7 +1312,7 @@ export default function SakuraPetFramesApp() {
                                        <QrCode className="mr-2 h-4 w-4" /> 手機下載 (QR)
                                    </Button>
                                </DialogTrigger>
-                               <DialogContent className="sm:max-w-[300px]">
+                               <DialogContent className="sm:max-w-[300px] qr-code-container">
                                    <DialogHeader>
                                        <DialogTitle>掃描 QR Code 下載</DialogTitle>
                                        <DialogDescription>
@@ -1355,12 +1358,12 @@ export default function SakuraPetFramesApp() {
            </CardFooter>
         </Card>
 
-         {/* Image for Printing - Use finalFramedImage (local) or finalGcsUrl */}
-         {finalFramedImage && ( // Use local image for print consistency
-             <div className="hidden printable-area">
-                 <img src={finalFramedImage} alt={`Printable framed photo of ${animalName}`} />
-             </div>
-         )}
+         {/* Div specifically for Printing - This will be the only thing visible */}
+         <div className="printable-area">
+             {finalFramedImage && (
+                 <img src={finalFramedImage} alt={`Printable framed photo of ${animalName || 'pet'}`} />
+             )}
+         </div>
 
       </div>
     </TooltipProvider>
