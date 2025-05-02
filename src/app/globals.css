@@ -4,7 +4,54 @@
 
 body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  /* Set background image */
+  background-image: url('/background.png');
+  /* Ensure the background covers the whole viewport */
+  background-size: cover;
+  /* Center the background image */
+  background-position: center center;
+  /* Prevent the background from scrolling with the content */
+  background-attachment: fixed;
+  /* Fallback background color if the image fails to load */
+  background-color: hsl(var(--background));
+  /* Ensure text is readable over the background */
+  color: hsl(var(--foreground));
 }
+
+/* Add styles for animated text */
+@keyframes text-focus-in {
+  0% {
+    filter: blur(12px);
+    opacity: 0;
+  }
+  100% {
+    filter: blur(0px);
+    opacity: 1;
+  }
+}
+
+.animate-text-focus-in {
+  animation: text-focus-in 1s cubic-bezier(0.550, 0.085, 0.680, 0.530) both;
+}
+
+@keyframes text-pop-up-top {
+  0% {
+    transform: translateY(0);
+    transform-origin: 50% 50%;
+    text-shadow: none;
+  }
+  100% {
+    transform: translateY(-10px); /* Adjust as needed */
+    transform-origin: 50% 50%;
+     /* Optional: Add a subtle text shadow for effect */
+     /* text-shadow: 0 1px 0 #cccccc, 0 2px 0 #cccccc, 0 3px 0 #cccccc, 0 4px 0 #cccccc, 0 5px 0 #cccccc, 0 6px 0 #cccccc, 0 7px 0 #cccccc, 0 8px 0 #cccccc, 0 9px 0 #cccccc, 0 50px 30px rgba(0, 0, 0, 0.3); */
+  }
+}
+
+.animate-text-pop-up-on-hover:hover {
+   animation: text-pop-up-top 0.4s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+}
+
 
 @layer base {
   :root {
@@ -83,9 +130,7 @@ body {
   * {
     @apply border-border;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
+  /* body styling moved up */
 }
 
 /* Falling Sakura Animation */
@@ -111,7 +156,7 @@ body {
   animation-name: fall;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
-  z-index: 0; /* Behind main content */
+  z-index: 5; /* Above background, below main content card */
   pointer-events: none; /* Don't interfere with clicks */
   opacity: 0; /* Start hidden */
 }

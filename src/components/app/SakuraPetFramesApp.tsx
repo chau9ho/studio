@@ -47,7 +47,7 @@ const TARGET_CONTENT_HEIGHT = 1369; // Max height constraint for the pet photo
 const TARGET_CONTENT_START_Y = 610; // Y position where the pet image content should start
 
 // ClipDrop dimension limit (set slightly lower for safety)
-const MAX_IMAGE_DIMENSION = 2000;
+const MAX_IMAGE_DIMENSION = 2048; // Use Clipdrop's actual limit
 
 
 export default function SakuraPetFramesApp() {
@@ -72,7 +72,7 @@ export default function SakuraPetFramesApp() {
 
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null); // Used for webcam capture
+  // const canvasRef = useRef<HTMLCanvasElement>(null); // Removed, not needed for resize helper
   const finalCanvasRef = useRef<HTMLCanvasElement>(null); // Used for framing
   const frameImageRef = useRef<HTMLImageElement | null>(null);
 
@@ -304,6 +304,7 @@ export default function SakuraPetFramesApp() {
           newHeight = newWidth / ratio;
         }
 
+        // Check height again after scaling width
         if (newHeight > maxDimension) {
           newHeight = maxDimension;
           newWidth = newHeight * ratio;
@@ -315,7 +316,7 @@ export default function SakuraPetFramesApp() {
         console.log(`New image dimensions: ${newWidth}x${newHeight}`);
 
         // Create a temporary canvas in memory for resizing
-        const canvas = document.createElement('canvas');
+        const canvas = document.createElement('canvas'); // No need for canvasRef
         canvas.width = newWidth;
         canvas.height = newHeight;
         const ctx = canvas.getContext('2d');
@@ -503,23 +504,30 @@ export default function SakuraPetFramesApp() {
         const displayError = uiError || error.message || "An unknown error occurred.";
         // Set a general error message if no specific one was set (e.g., by ClipDrop handler)
         if (!uiError) {
-            setUiError(`唔好意思, 出咗啲問題: ${displayError}. 請一陣再試啦。`);
+             // Check for ClipDrop specific error patterns
+             if (error.message && (error.message.includes("ClipDrop") || error.message.includes("API Error (400)"))) {
+                 setUiError("唔好意思, 背景替換出錯，請稍後再試。");
+             } else if (error.message && error.message.includes("Failed to generate") || error.message.includes("analyze animal") || error.message.includes("generate Cantonese story")) {
+                 setUiError(`唔好意思, AI 出錯: ${displayError}. 請檢查設定或稍後再試。`);
+             }
+             else {
+                setUiError(`唔好意思, 出咗啲問題: ${displayError}. 請一陣再試啦。`);
+             }
         }
 
          // Update progress text based on error type
-         if (error.message.includes("ClipDrop")) {
+         if (error.message && (error.message.includes("ClipDrop") || error.message.includes("API Error (400)"))) {
              setProgressText('背景替換失敗...😢');
-             // uiError is already set in the ClipDrop catch block
-         } else if (error.message.includes("AI")) {
+             // uiError is already set
+         } else if (error.message && (error.message.includes("AI") || error.message.includes("generate prompt") || error.message.includes("analyze animal") || error.message.includes("generate Cantonese story"))) {
              setProgressText('AI 諗嘢失敗...🤯');
-              setUiError(`唔好意思, AI 出錯: ${error.message}. 請檢查設定或稍後再試。`); // Ensure AI error message is shown
+             // uiError is already set
          }
          else {
              setProgressText('魔法失敗咗...😢'); // General failure
-              // Use the already set or default error message
-             setUiError(uiError || `唔好意思, 出咗啲問題: ${displayError}. 請稍後再試。`);
+              // uiError is already set
          }
-        toast({ title: "變身失敗", description: uiError, variant: "destructive" }); // Use the final uiError value
+        toast({ title: "變身失敗", description: uiError || "An unknown error occurred.", variant: "destructive" }); // Use the final uiError value
     } finally {
         setIsGenerating(false);
         // Don't reset progress to 0 immediately, let the user see it completed or failed at 100%
@@ -696,13 +704,44 @@ export default function SakuraPetFramesApp() {
   return (
     <div className="container mx-auto p-4 max-w-4xl relative"> {/* Added relative positioning */}
       <FallingSakura /> {/* Add the falling sakura component */}
-      <Card className="w-full shadow-lg overflow-hidden relative z-10"> {/* Ensure card is above sakura */}
+      <Card className="w-full shadow-lg overflow-hidden relative z-10 bg-card/80 backdrop-blur-sm"> {/* Make card slightly transparent and blurred */}
         <CardHeader>
-          <CardTitle className="text-3xl font-bold text-center text-pink-500 flex items-center justify-center gap-2">
-            🌸 櫻花寵物魔法變身器 🌸
+          <CardTitle className="text-3xl font-bold text-center text-pink-500 flex items-center justify-center gap-2 animate-text-focus-in">
+            <span className="animate-text-pop-up-on-hover inline-block">🌸</span>
+            <span className="animate-text-pop-up-on-hover inline-block">櫻</span>
+            <span className="animate-text-pop-up-on-hover inline-block">花</span>
+            <span className="animate-text-pop-up-on-hover inline-block">寵</span>
+            <span className="animate-text-pop-up-on-hover inline-block">物</span>
+            <span className="animate-text-pop-up-on-hover inline-block">魔</span>
+            <span className="animate-text-pop-up-on-hover inline-block">法</span>
+            <span className="animate-text-pop-up-on-hover inline-block">變</span>
+            <span className="animate-text-pop-up-on-hover inline-block">身</span>
+            <span className="animate-text-pop-up-on-hover inline-block">器</span>
+            <span className="animate-text-pop-up-on-hover inline-block">🌸</span>
           </CardTitle>
-          <CardDescription className="text-center">
-             揀張寵物相 + 揀個風格 = 獨一無二嘅櫻花魔法相！
+          <CardDescription className="text-center animate-text-focus-in" style={{ animationDelay: '0.5s' }}>
+             <span className="animate-text-pop-up-on-hover inline-block">揀</span>
+             <span className="animate-text-pop-up-on-hover inline-block">張</span>
+             <span className="animate-text-pop-up-on-hover inline-block">寵</span>
+             <span className="animate-text-pop-up-on-hover inline-block">物</span>
+             <span className="animate-text-pop-up-on-hover inline-block">相</span>
+             <span className="animate-text-pop-up-on-hover inline-block"> + </span>
+             <span className="animate-text-pop-up-on-hover inline-block">揀</span>
+             <span className="animate-text-pop-up-on-hover inline-block">個</span>
+             <span className="animate-text-pop-up-on-hover inline-block">風</span>
+             <span className="animate-text-pop-up-on-hover inline-block">格</span>
+             <span className="animate-text-pop-up-on-hover inline-block"> = </span>
+             <span className="animate-text-pop-up-on-hover inline-block">獨</span>
+             <span className="animate-text-pop-up-on-hover inline-block">一</span>
+             <span className="animate-text-pop-up-on-hover inline-block">無</span>
+             <span className="animate-text-pop-up-on-hover inline-block">二</span>
+             <span className="animate-text-pop-up-on-hover inline-block">嘅</span>
+             <span className="animate-text-pop-up-on-hover inline-block">櫻</span>
+             <span className="animate-text-pop-up-on-hover inline-block">花</span>
+             <span className="animate-text-pop-up-on-hover inline-block">魔</span>
+             <span className="animate-text-pop-up-on-hover inline-block">法</span>
+             <span className="animate-text-pop-up-on-hover inline-block">相</span>
+             <span className="animate-text-pop-up-on-hover inline-block">！</span>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -980,8 +1019,8 @@ export default function SakuraPetFramesApp() {
 
          {/* Hidden canvas for final image composition */}
          <canvas ref={finalCanvasRef} className="hidden"></canvas>
-          {/* Hidden canvas for webcam capture/resize */}
-         <canvas ref={canvasRef} className="hidden"></canvas>
+          {/* Removed hidden canvas for webcam capture/resize */}
+         {/* <canvas ref={canvasRef} className="hidden"></canvas> */}
 
         </CardContent>
          <CardFooter className="text-center text-xs text-muted-foreground justify-center">

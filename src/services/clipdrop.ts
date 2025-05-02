@@ -62,10 +62,19 @@ export async function replaceBackground(
           // Attempt to parse JSON error response from ClipDrop
           const errorJson = await response.json();
           errorBody += `: ${errorJson.error || JSON.stringify(errorJson)}`;
+           // Log specific error for resolution issue
+           if (response.status === 400 && errorJson?.error?.includes("resolution exceeds")) {
+               console.error(`ClipDrop Error: Image resolution too high. Input size: ${imageFile.size} bytes. Consider resizing.`);
+           }
       } catch (e) {
            // If JSON parsing fails, try to get text response
            try {
-             errorBody += `: ${await response.text()}`;
+             const textResponse = await response.text();
+              errorBody += `: ${textResponse}`;
+               // Log specific error for resolution issue from text
+               if (response.status === 400 && textResponse.includes("resolution exceeds")) {
+                 console.error(`ClipDrop Error: Image resolution too high. Input size: ${imageFile.size} bytes. Consider resizing.`);
+               }
            } catch (textError) {
               // Fallback if text reading also fails
               errorBody += ' - Could not read error details.';
