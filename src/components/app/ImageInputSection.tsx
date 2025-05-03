@@ -7,8 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Upload, Camera, QrCode, RefreshCw, Loader2, X, CheckCircle2 } from 'lucide-react';
+import { Checkbox } from "@/components/ui/checkbox"; // Import Checkbox
+import { Upload, Camera, QrCode, RefreshCw, Loader2, X, CheckCircle2, Wand2 } from 'lucide-react'; // Added Wand2
 import { QRCodeCanvas } from 'qrcode.react';
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"; // Import Tooltip
 
 interface ImageInputSectionProps {
     animalName: string;
@@ -28,12 +30,13 @@ interface ImageInputSectionProps {
     isFetchingGcsImages: boolean;
     gcsFetchError: string | null;
     fetchImagesFromGCS: () => void;
-    toast: (options: any) => void; // Simplified toast type
+    toast: (options: any) => void;
     setUiError: (error: string | null) => void;
-    // Added props to handle image state clearing on error
     setCapturedImage: (image: string | null) => void;
     setUploadedImage: (file: File | null) => void;
     setCurrentObjectUrl: (url: string | null) => void;
+    removeImageBackground: boolean; // State for remove.bg option
+    setRemoveImageBackground: (value: boolean) => void; // Setter for remove.bg option
 }
 
 const ImageInputSection: React.FC<ImageInputSectionProps> = ({
@@ -59,6 +62,8 @@ const ImageInputSection: React.FC<ImageInputSectionProps> = ({
     setCapturedImage,
     setUploadedImage,
     setCurrentObjectUrl,
+    removeImageBackground, // Receive state
+    setRemoveImageBackground, // Receive setter
 }) => {
     return (
         <div className="space-y-4">
@@ -69,12 +74,16 @@ const ImageInputSection: React.FC<ImageInputSectionProps> = ({
                     <TabsTrigger value="webcam"><Camera className="mr-2 h-4 w-4 inline" />拍攝</TabsTrigger>
                     <TabsTrigger value="qrcode"><QrCode className="mr-2 h-4 w-4 inline" />雲端</TabsTrigger>
                 </TabsList>
+
+                {/* Upload Tab */}
                 <TabsContent value="upload">
                     <div className="space-y-2 pt-2">
                         <Label htmlFor="picture" className="text-sm text-muted-foreground">揀張相 (JPG, PNG, etc.)</Label>
                         <Input id="picture" type="file" accept="image/*" onChange={handleImageUpload} />
                     </div>
                 </TabsContent>
+
+                {/* Webcam Tab */}
                 <TabsContent value="webcam">
                     <div className="space-y-2 pt-2">
                         {!isWebcamOpen && (
@@ -83,7 +92,8 @@ const ImageInputSection: React.FC<ImageInputSectionProps> = ({
                             </Button>
                         )}
                         <div className={`relative aspect-video bg-muted rounded-md overflow-hidden ${!showWebcam ? 'hidden' : ''}`}>
-                            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
+                             {/* Always render video tag to avoid ref issues */}
+                            <video ref={videoRef} playsInline muted className={`w-full h-full object-cover ${!showWebcam ? 'hidden' : ''}`}></video>
                             {isWebcamOpen && (
                                 <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-2">
                                     <Button onClick={captureImage} size="icon" variant="destructive" title="影相">
@@ -95,7 +105,7 @@ const ImageInputSection: React.FC<ImageInputSectionProps> = ({
                                 </div>
                             )}
                         </div>
-                        {hasCameraPermission === false && !isWebcamOpen && (
+                        {hasCameraPermission === false && ( // Simplified condition
                             <Alert variant="destructive">
                                 <AlertTitle>鏡頭權限被拒</AlertTitle>
                                 <AlertDescription>
@@ -103,11 +113,13 @@ const ImageInputSection: React.FC<ImageInputSectionProps> = ({
                                 </AlertDescription>
                             </Alert>
                         )}
-                        {hasCameraPermission === null && isWebcamOpen && (
-                            <p className="text-sm text-muted-foreground">要求鏡頭權限中...</p>
-                        )}
+                         {hasCameraPermission === null && isWebcamOpen && ( // Show when requesting permission
+                             <p className="text-sm text-muted-foreground">要求鏡頭權限中...</p>
+                         )}
                     </div>
                 </TabsContent>
+
+                {/* Cloud/QR Code Tab */}
                 <TabsContent value="qrcode">
                     <div className="space-y-4 pt-4">
                         {/* QR Code Section */}
@@ -131,7 +143,7 @@ const ImageInputSection: React.FC<ImageInputSectionProps> = ({
                         <div className="space-y-2">
                             <div className="flex justify-between items-center">
                                 <Label className="text-sm text-muted-foreground">喺雲端搵到嘅相：</Label>
-                                <Button onClick={fetchImagesFromGCS} variant="ghost" size="sm" disabled={isFetchingGcsImages || !animalName} title="重新整理雲端圖片">
+                                <Button onClick={() => fetchImagesFromGCS(true)} variant="ghost" size="sm" disabled={isFetchingGcsImages || !animalName} title="重新整理雲端圖片">
                                     <RefreshCw className={`h-4 w-4 ${isFetchingGcsImages ? 'animate-spin' : ''}`} />
                                 </Button>
                             </div>
@@ -170,32 +182,58 @@ const ImageInputSection: React.FC<ImageInputSectionProps> = ({
                     </div>
                 </TabsContent>
             </Tabs>
-            {previewImageSrc && (
-                <div className="mt-4">
-                    <Label>預覽:</Label>
-                    <img
-                        src={previewImageSrc}
-                        alt="已上載、拍攝或由雲端選取嘅寵物相"
-                        width={300}
-                        height={225}
-                        className="rounded-md border mt-1 object-cover bg-muted shadow-md"
-                        data-ai-hint="pet animal"
-                        onError={(e) => {
-                            console.error("Error loading preview image:", e, previewImageSrc);
-                            toast({ title: "圖片載入錯誤", description: "無法顯示預覽圖片。", variant: "destructive" });
-                            setUiError("無法顯示預覽圖片。");
-                            // Clear the problematic source
-                            if (previewImageSrc.startsWith('blob:')) {
-                                setUploadedImage(null); // Clear the file state
-                                setCurrentObjectUrl(null); // Clear the object URL state
-                                URL.revokeObjectURL(previewImageSrc); // Revoke the specific URL
-                            } else if (previewImageSrc.startsWith('data:')) {
-                                setCapturedImage(null); // Clear data URL state (webcam or fetched GCS)
-                            }
 
-                        }}
-                    />
-                </div>
+            {/* Image Preview and Options */}
+            {previewImageSrc && (
+                 <div className="mt-4 space-y-3">
+                     <div>
+                         <Label>預覽:</Label>
+                         <img
+                             src={previewImageSrc}
+                             alt="已上載、拍攝或由雲端選取嘅寵物相"
+                             width={300}
+                             height={225}
+                             className="rounded-md border mt-1 object-contain bg-muted shadow-md max-w-full h-auto" // Use object-contain
+                             data-ai-hint="pet animal"
+                             onError={(e) => {
+                                 console.error("Error loading preview image:", e, previewImageSrc);
+                                 toast({ title: "圖片載入錯誤", description: "無法顯示預覽圖片。", variant: "destructive" });
+                                 setUiError("無法顯示預覽圖片。");
+                                 // Clear the problematic source
+                                 if (previewImageSrc.startsWith('blob:')) {
+                                     setUploadedImage(null);
+                                     setCurrentObjectUrl(null);
+                                     URL.revokeObjectURL(previewImageSrc);
+                                 } else if (previewImageSrc.startsWith('data:')) {
+                                     setCapturedImage(null); // Clear data URL state (webcam or fetched GCS)
+                                 }
+                             }}
+                         />
+                     </div>
+
+                     {/* Background Removal Checkbox */}
+                     <div className="flex items-center space-x-2 pt-2">
+                         <Checkbox
+                             id="remove-background"
+                             checked={removeImageBackground}
+                             onCheckedChange={(checked) => setRemoveImageBackground(Boolean(checked))} // Ensure boolean value
+                             className="border-teal-300 data-[state=checked]:bg-teal-500 data-[state=checked]:text-white"
+                         />
+                          <Label htmlFor="remove-background" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-1">
+                             <Wand2 size={16} className="text-teal-600" />
+                             <Tooltip>
+                                 <TooltipTrigger asChild>
+                                     <span className="cursor-help underline decoration-dashed decoration-teal-400">
+                                         移除背景?
+                                     </span>
+                                 </TooltipTrigger>
+                                 <TooltipContent className="max-w-xs text-xs">
+                                     <p>勾選此項會使用 Remove.bg API 嘗試移除圖片背景，令寵物更突出。需要喺「設定」輸入 Remove.bg API Key。</p>
+                                 </TooltipContent>
+                             </Tooltip>
+                         </Label>
+                     </div>
+                 </div>
             )}
         </div>
     );

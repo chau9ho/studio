@@ -2,6 +2,9 @@
  * @fileOverview Service functions for interacting with the ClipDrop API and handling image data conversions.
  */
 
+import { resizeImageIfNeeded } from '@/lib/imageUtils'; // Import resize utility
+import { MAX_IMAGE_DIMENSION } from '@/components/app/SakuraPetFramesApp'; // Import max dimension constant
+
 /**
  * Represents the response from the ClipDrop API replace-background endpoint.
  */
@@ -15,8 +18,7 @@ export interface ClipDropResponse {
 
 /**
  * Replaces the background of an image using the ClipDrop API replace-background endpoint.
- * IMPORTANT: This function makes a client-side API call. Ensure your API key usage aligns with ClipDrop's terms
- * and consider moving sensitive operations server-side in production environments.
+ * Attempts to resize the image if it exceeds ClipDrop's dimension limits before sending.
  *
  * @param imageFile The image file (as File or Blob) to process.
  * @param prompt The text prompt describing the desired background.
@@ -40,48 +42,62 @@ export async function replaceBackground(
        throw new Error("Prompt is required.");
    }
 
+   let imageToSend = imageFile;
+
+   // --- Optional: Resize check before sending to ClipDrop ---
+   // ClipDrop might handle resizing, but pre-resizing can sometimes prevent 400 errors
+   // This requires converting Blob to DataURL first, which adds overhead.
+   // Consider enabling this if you frequently hit dimension limits.
+   /*
+   try {
+       const dataUrl = await blobToDataUrl(imageFile); // Convert Blob/File to DataURL
+       const { resizedBlob } = await resizeImageIfNeeded(dataUrl, MAX_IMAGE_DIMENSION);
+       if (resizedBlob.size < imageFile.size) {
+           console.log(`Pre-resized image for ClipDrop from ${imageFile.size} to ${resizedBlob.size} bytes.`);
+           imageToSend = resizedBlob;
+       }
+   } catch (resizeError: any) {
+        console.warn(`Could not pre-check/resize image for ClipDrop: ${resizeError.message}. Sending original.`);
+        // Continue with the original image if resizing check fails
+   }
+   */
+   // --- End Optional Resize ---
+
+
   const formData = new FormData();
   // Ensure the blob has a filename, required by some APIs
-  const fileName = imageFile instanceof File ? imageFile.name : 'image.png';
-  formData.append('image_file', imageFile, fileName);
+  const fileName = imageToSend instanceof File ? imageToSend.name : 'image_for_clipdrop.png';
+  formData.append('image_file', imageToSend, fileName);
   formData.append('prompt', prompt);
 
-  let response: Response | null = null; // Declare response outside try block
+  let response: Response;
 
   try {
+    console.log(`Sending image (${(imageToSend.size / (1024*1024)).toFixed(2)} MB) to ClipDrop API...`);
     response = await fetch('https://clipdrop-api.co/replace-background/v1', {
       method: 'POST',
       headers: {
         'x-api-key': apiKey,
-        // 'Accept' header for blob is usually not needed, browser handles it.
       },
       body: formData,
     });
 
     if (!response.ok) {
-      let errorBody = `API Error (${response.status})`;
+      // Handle error responses more robustly
+      let errorBody = `ClipDrop API Error (${response.status})`;
+      let errorDetails = '';
       try {
-          // Attempt to parse JSON error response from ClipDrop
           const errorJson = await response.json();
-          errorBody += `: ${errorJson.error || JSON.stringify(errorJson)}`;
-           // Log specific error for resolution issue
-           if (response.status === 400 && errorJson?.error?.includes("resolution exceeds")) {
-               console.error(`ClipDrop Error: Image resolution too high. Input size: ${imageFile.size} bytes. Consider resizing.`);
-           }
+           errorDetails = errorJson.error || JSON.stringify(errorJson);
       } catch (e) {
-           // If JSON parsing fails, try to get text response
            try {
              const textResponse = await response.text();
-              errorBody += `: ${textResponse}`;
-               // Log specific error for resolution issue from text
-               if (response.status === 400 && textResponse.includes("resolution exceeds")) {
-                 console.error(`ClipDrop Error: Image resolution too high. Input size: ${imageFile.size} bytes. Consider resizing.`);
-               }
+             errorDetails = textResponse;
            } catch (textError) {
-              // Fallback if text reading also fails
-              errorBody += ' - Could not read error details.';
+               errorDetails = 'Could not read error details.';
            }
       }
+      errorBody += `: ${errorDetails}`;
       console.error("ClipDrop API Error Response:", errorBody);
       throw new Error(errorBody); // Throw the detailed error
     }
@@ -95,104 +111,28 @@ export async function replaceBackground(
         throw new Error(`ClipDrop API returned unexpected content type: ${imageBlob?.type || 'unknown'}`);
      }
 
-
+      console.log(`ClipDrop processed image received. Type: ${imageBlob.type}, Size: ${imageBlob.size} bytes.`);
     return {
-      image: imageBlob, // Return the Blob directly
+      image: imageBlob,
     };
 
   } catch (error: any) {
-    // Catch network errors (like "Failed to fetch") or errors thrown above
+    // Catch network errors or errors thrown above
     console.error("Error calling ClipDrop API:", error);
-
-    let errorMessage = "ClipDrop API request failed";
-    if (error.message.includes("Failed to fetch")) {
-        // Provide a more specific message for network/CORS issues
-        errorMessage += ": Could not connect to the API. Check your network connection or if there are Cross-Origin (CORS) restrictions.";
-         // Log potential CORS issue hint
-         console.warn("Hint: 'Failed to fetch' can sometimes indicate a CORS issue when calling APIs directly from the browser. Consider using a backend proxy.");
-    } else if (error.message.includes("API Error")) {
-         // Use the detailed error message thrown from the response check
-         errorMessage = error.message;
-    }
-     else {
-        // General error message
-        errorMessage += `: ${error.message || 'Unknown error'}`;
-    }
-
-    // Re-throw the constructed error message
-    throw new Error(errorMessage);
+     let errorMessage = `ClipDrop API request failed: ${error.message || 'Unknown error'}`;
+     // Refine common error messages based on the caught error
+     if (errorMessage.includes("API Error (401)") || errorMessage.includes("API Error (403)")) {
+        errorMessage = "ClipDrop API Key 無效或已過期，請檢查設定。";
+     } else if (errorMessage.includes("API Error (429)")) {
+         errorMessage = "ClipDrop API 使用量已達上限，請稍後再試。";
+     } else if (errorMessage.includes("API Error (400)") && (errorMessage.includes("resolution exceeds") || errorMessage.includes("max pixels"))) {
+         errorMessage = `圖片解像度過高 (${(imageToSend.size / (1024*1024)).toFixed(1)}MB)，無法處理。請使用較小圖片。`;
+     } else if (errorMessage.includes("Failed to fetch")) {
+         errorMessage = "無法連接 ClipDrop API，請檢查網絡或稍後再試。";
+     }
+    throw new Error(errorMessage); // Re-throw standardized error
   }
 }
 
-/**
- * Converts a Buffer to a Blob.
- * Useful if image data originates as a Node.js Buffer.
- *
- * @param buffer The image buffer.
- * @param mimeType The MIME type of the image (e.g., 'image/png', 'image/jpeg').
- * @returns The image as a Blob.
- */
-export function bufferToBlob(buffer: Buffer, mimeType: string): Blob {
-    if (!buffer || !mimeType) {
-        throw new Error("Buffer and mimeType are required for bufferToBlob conversion.");
-    }
-    // Ensure Buffer is correctly converted to ArrayBuffer for Blob constructor
-    const arrayBuffer = Uint8Array.from(buffer).buffer;
-    return new Blob([arrayBuffer], { type: mimeType });
-}
-
-
-/**
- * Converts a data URL string (e.g., 'data:image/png;base64,...') to a Blob.
- *
- * @param dataUrl The data URL string.
- * @returns A promise that resolves to the Blob.
- * @throws {Error} If the data URL is invalid or fetch fails.
- */
-export async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
-    if (!dataUrl || !dataUrl.startsWith('data:')) {
-        throw new Error("Invalid data URL provided to dataUrlToBlob.");
-    }
-    try {
-        const response = await fetch(dataUrl);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch data URL: ${response.statusText}`);
-        }
-        const blob = await response.blob();
-        if (!blob || blob.size === 0) {
-             throw new Error("Fetched Blob is empty or invalid.");
-        }
-        return blob;
-    } catch (error: any) {
-         console.error("Error converting data URL to Blob:", error);
-         throw new Error(`Could not convert data URL to Blob: ${error.message || error}`);
-    }
-}
-
-/**
-* Converts a Blob to a Base64 encoded Data URL string.
-*
-* @param blob The Blob to convert.
-* @returns A promise that resolves to the Data URL string.
-* @throws {Error} If the Blob is invalid or FileReader fails.
-*/
-export function blobToDataUrl(blob: Blob): Promise<string> {
-    return new Promise((resolve, reject) => {
-        if (!(blob instanceof Blob)) {
-            return reject(new Error("Invalid Blob provided to blobToDataUrl."));
-        }
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            if (typeof reader.result === 'string') {
-                resolve(reader.result);
-            } else {
-                reject(new Error("FileReader did not return a string result."));
-            }
-        };
-        reader.onerror = (error) => {
-             console.error("FileReader error in blobToDataUrl:", error);
-            reject(new Error(`FileReader failed: ${reader.error?.message || 'Unknown error'}`));
-        };
-        reader.readAsDataURL(blob);
-    });
-}
+// Keep image utility functions separate (moved to lib/imageUtils.ts)
+// bufferToBlob, dataUrlToBlob, blobToDataUrl
